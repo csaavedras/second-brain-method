@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/check-close.sh stop", "timeout": 10, "statusMessage": "Method: checking session close" } ] }
+    ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/check-close.sh precompact", "timeout": 10, "statusMessage": "Method: checking state before compacting" } ] }
+    ]
+  }
+}
