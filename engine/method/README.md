@@ -8,7 +8,7 @@ This folder is the **source of truth of the method**: the guides (`README.md`,
 `BRAIN.md`, `MODEL-ROUTING.md`, `MULTI-AGENT.md`) explain the *why*; the
 templates (`*.template.md`) bring the *what gets instantiated*.
 
-**Method version: 3.2** — each template and guide carries a
+**Method version: 3.3** — each template and guide carries a
 `<!-- method-version: X.Y -->` comment. When improving a piece, bump the
 version here and in the pieces. To detect outdated copies:
 `grep -r "method-version" <instances>`.
@@ -75,6 +75,7 @@ the team's `CLAUDE.md` if it exists). The method touches none of that.
 | `BRAIN.md` | The vault: structure, standard frontmatter, note templates (hub/decision/pattern/session), rules of use |
 | `MODEL-ROUTING.md` | Which model to use by task type (Explorer/Implementer/Reasoner) and when to escalate |
 | `MULTI-AGENT.md` | Parent → Subagents flow: roles, catalog, cycle, parallelism and security |
+| `GRAPHIFY.md` | AST code graph, optional and opt-in per large repo: activation, 0-token queries, 3-layer rule |
 
 Each template brings `<...>` placeholders and `<!-- ... -->` comments to fill
 in. Replace all the `<...>` before considering the method installed.
@@ -200,7 +201,10 @@ loaded in excess is paid on every message. Rules:
      relevant to the day's task, and reports which it'll read and why.
 3. **Broad searches → delegate them.** Code sweeps aren't done in the main
    session (they pollute the context with dumps); they're delegated to a
-   read-only subagent and only the conclusion comes back.
+   read-only subagent and only the conclusion comes back. In repos with an
+   active Graphify graph (opt-in, `GRAPHIFY.md`), **structural** questions
+   ("who calls…?") go to the graph first: it answers at 0 tokens with no
+   sweep or subagent.
 4. **Large files → read by sections**, not in full.
 5. **Delegate vs. inline:** a 1-2 step task on already-known files → inline
    (delegating would cost more context than it saves); a broad sweep or a

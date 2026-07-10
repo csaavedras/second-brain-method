@@ -3,8 +3,9 @@
   ~/.claude/commands/new-project.md and fill in <vault-path> and
   <method-path>.
   Project registration in one step: vault + CLAUDE.local.md + settings (§5.1).
+  v3.3: offers Graphify (opt-in) on large repos (GRAPHIFY.md).
 -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 3.3 -->
 
 # /new-project — project registration
 
@@ -59,11 +60,19 @@ Vault: `<vault-path>`.
      `credentials/`, `.aws/`, `.ssh/`.
    - `ask`: `git add/commit/push/checkout`, `rm`, `mv`.
 
+## Code graph (opt-in, large repos only)
+
+6. If the repo has **dozens or more source files** (where grep no longer
+   orients), **offer** to activate Graphify — never impose it or activate it
+   without an OK. If I accept: follow the 4 steps of "Activating in a repo"
+   in `<method-path>/GRAPHIFY.md` (keyless AST build, `.git/info/exclude`,
+   allowlist, section in CLAUDE.local.md). Small repos: don't even offer it.
+
 ## Wrap-up
 
-6. Add the project to "Active projects" in `00-index/home.md` with a wikilink
+7. Add the project to "Active projects" in `00-index/home.md` with a wikilink
    to the hub.
-7. Report: files created, `<...>` placeholders left to fill in by hand, and
+8. Report: files created, `<...>` placeholders left to fill in by hand, and
    the reminder that the first work session is opened with `/start`.
 
 Fixed rules: don't touch anything versioned in the repo (the method is not

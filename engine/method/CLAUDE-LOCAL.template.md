@@ -8,7 +8,7 @@
   exists: they coexist, this doesn't replace it.
   The method's rules do NOT go here: they live in ~/.claude/CLAUDE.md.
 -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 3.3 -->
 
 # <project-name> — personal anchor
 
@@ -31,3 +31,22 @@ Read **on demand** only the ones relevant to the current task, not all:
 - build: `<command>`
 - test: `<command>`
 - lint: `<command>`
+
+<!-- OPTIONAL — only LARGE repos with Graphify activated (method/GRAPHIFY.md).
+     If this repo doesn't use the graph, delete this whole block: the section
+     is the signal /start uses to refresh it and apply the 3-layer rule.
+
+## Code graph (Graphify)
+AST graph active in this repo (0 tokens, no API key). Refresh on session
+open: `graphify update . --no-cluster`.
+
+3-layer reading: structure → graph · state/decisions → vault · raw code →
+only when editing. Queries (never load the graph into context):
+- `graphify affected "<symbol>"` — who depends on X
+- `graphify explain "<symbol>"` — one node + its neighbors
+- `graphify query "<question>" --budget 800` — natural-language BFS
+- `graphify path "<A>" "<B>"` — path between two symbols
+
+Limit: symbol level (functions/classes/imports); module constants → grep.
+-->
+

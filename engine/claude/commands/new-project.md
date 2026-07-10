@@ -46,11 +46,20 @@ Vault: `~/second-brain`.
      `credentials/`, `.aws/`, `.ssh/`.
    - `ask`: `git add/commit/push/checkout`, `rm`, `mv`.
 
+## Code graph (opt-in, large repos only)
+
+6. If the repo has **dozens or more source files** (where grep no longer
+   orients), **offer** to activate Graphify — never impose it or activate it
+   without an OK. If I accept: follow the 4 steps of "Activating in a repo"
+   in `~/second-brain/method/GRAPHIFY.md` (keyless AST build,
+   `.git/info/exclude`, allowlist, section in CLAUDE.local.md). Small repos:
+   don't even offer it.
+
 ## Wrap-up
 
-6. Add the project to "Active projects" in `00-index/home.md` with a wikilink
+7. Add the project to "Active projects" in `00-index/home.md` with a wikilink
    to the hub.
-7. Report: files created, `<...>` placeholders left to fill in by hand, and
+8. Report: files created, `<...>` placeholders left to fill in by hand, and
    the reminder that the first work session is opened with `/start`.
 
 Fixed rules: don't touch anything versioned in the repo (the method is not

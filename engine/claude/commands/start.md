@@ -14,6 +14,11 @@ Open the session per the working method:
    `hub.md`. Only if the hub has no tree, or CONTEXT.md indicates the
    structure changed, delegate the sweep to the Explore subagent and update
    the hub with the result.
+5. If `CLAUDE.local.md` has the `## Code graph (Graphify)` section: run
+   `graphify update . --no-cluster` (AST refresh, ~seconds, 0 tokens) and,
+   during the session, answer structural questions ("who calls…?", "what
+   depends on…?") with the graph, not with grep/Explore sweeps. If the
+   section isn't there, skip this step without commenting.
 
 Report:
 1. Current state per CONTEXT.md (3-5 lines)
