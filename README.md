@@ -1,149 +1,122 @@
-# 🧠 Second Brain for Claude Code
+<!-- method-version: 4.0 -->
+# Second Brain Method for agentic coding
 
-> A working method that gives [Claude Code](https://claude.com/claude-code)
-> persistent memory. Install once and every session **resumes where you left
-> off**, without re-explaining anything. macOS.
+Persistent context, Graphify, safe harnesses and multi-agent workflows for
+**Claude Code and OpenAI Codex**. A personal file-based vault lets either runtime
+resume verified work without depending on conversation history.
 
----
+## Features
 
-## What it is
+- One persistent vault: context, approved plans, decisions, sessions and learning.
+- Claude + Codex adapters over one provider-agnostic method.
+- Optional Graphify: shared query-first CLI, no mandatory MCP or model API key.
+- Context hygiene: thin global rules, live context, on-demand conventions.
+- Plan-before-code, scoped approvals and branch discipline.
+- Parent → Task Brief → Worker → Report, with configurable capability-based routing.
+- Close enforcement and protection before compaction, using shared filesystem facts.
+- No secrets, no automatic push and no personal Codex files in team repositories.
 
-Claude Code remembers nothing between sessions: every time you open the
-terminal, it starts blank. This method gives it a **memory** — a "second
-brain" on your disk where the state of each project and everything you learn
-is written down.
+## Install (macOS)
 
-In practice, three things get installed together:
-
-- A set of **commands** (`/start`, `/close`, `/learn`, …) that load and save
-  your context with discipline.
-- A **vault** (a folder) where all that knowledge lives, which you can open
-  and browse in [Obsidian](https://obsidian.md).
-- A set of **safety rules** so Claude never touches git, deletes files or
-  exposes secrets without your permission.
-
----
-
-## ✨ Why use it — the benefits
-
-| Without the method | With the method |
-|---|---|
-| Every session starts from zero: you re-explain the project and Claude re-explores the repo, burning time and tokens | `/start` resumes in 30 seconds with the exact state and the next step |
-| What you decided yesterday evaporates when you close the terminal | `/close` writes down what was done, what's left and **why** each thing was decided |
-| What you study gets lost or scattered across loose notes | `/learn` accumulates your learning into a graph of connected notes that grows over time |
-| Claude can make risky changes (git, deletes, branches) on its own | No git or deletes without your explicit approval; secrets are never read or stored |
-| You waste tokens loading excess context on every message | Only the minimum needed is loaded and the rest is fetched on demand → **cheaper and faster** |
-
-**In one sentence:** you work with an assistant that has memory, judgment and
-brakes — and that tomorrow knows exactly where you left it.
-
-The acid test: tomorrow you type `/start` and keep working **without
-explaining anything**.
-
----
-
-## Requirements
-
-- **macOS** (this installer is Mac only).
-- **[Claude Code](https://claude.com/claude-code)** installed (the `claude` CLI).
-- **git** and **jq** — if you don't have jq: `brew install jq`.
-- **[Obsidian](https://obsidian.md)** (optional, recommended) to view and
-  browse your brain visually.
-
----
-
-## Install
+Requires Bash, git, jq and Python 3.9+ (standard library only). Install the selected
+provider CLI before using it; its absence does not prevent static installation.
+Obsidian is optional for browsing the vault.
 
 ```bash
-git clone https://github.com/csaavedras/second-brain-method.git
-cd second-brain-method
-./install.sh
+git clone https://github.com/csaavedras/-second-brain-method.git
+cd ./-second-brain-method
+./install.sh --platform claude
+./install.sh --platform codex
+./install.sh --platform both
 ```
 
-That installs the method's commands and creates your vault at `~/second-brain`.
-Want it somewhere else? `./install.sh ~/the/path/you/want`.
+Choose one invocation. Default `./install.sh` still installs Claude, with the vault
+at `~/second-brain`. Existing positional usage is preserved:
 
-The installer **respects your existing configuration**: it backs up what you
-had and only *adds* the method's hooks to your `settings.json`, without
-clobbering your model, theme or plugins. When it finishes it prints the first
-steps.
-
----
-
-## How to work
-
-Everything revolves around three memory operations: **load** (`/start`),
-**save** (`/close`) and **capitalize** (`/learn`).
-
-### Start a project
 ```bash
-cd ~/my-project && claude
-```
-```
-/new-project my-project    ← registers the project in your brain
-/start                     ← opens the session
+./install.sh ~/custom-vault --platform both
+./install.sh --force --platform both
 ```
 
-### A normal workday
-```
-/start          ← tells you where you left off and what the next step is
-...you work...   ← Claude proposes a plan, you approve it, it executes
-/close          ← at the end of each task and when you stop: saves the state
-```
-If you forget to close, the method reminds you before you finish.
+Existing knowledge is preserved even with `--force`. Instructions use managed
+blocks; hooks and permissions merge; modified owned files receive timestamped
+backups. Reinstalling does not duplicate blocks/hooks or nest method snapshots.
+Malformed config, registry or managed blocks fail before configuration changes.
+Configuration roots: CLAUDE_HOME, CODEX_HOME; skills default to `$HOME/.agents/skills`
+(and can be redirected with CODEX_SKILLS_HOME). The summary shows installed paths.
 
-### Learn something (with or without a project)
-```
-/learn          ← at the end of a chat: saves what was learned to your brain
-```
-Or specific: `/learn react hooks`.
+Codex users: review `/hooks` to trust the installed handlers. Retain workspace-write
+and on-request approvals; give the session write access only to the chosen vault
+in addition to the project (`--add-dir <vault>` in CLI). Your config.toml is preserved.
+Details: [provider matrix](engine/method/PROVIDERS.md).
 
-### Review what you know
-No Claude needed: open your vault in **Obsidian** and browse your projects'
-state, the decisions you made and everything you've learned — graph view
-included.
+## Daily workflow
 
----
-
-## The commands
-
-| Command | When | What it does |
+| Step | Claude | Codex |
 |---|---|---|
-| `/new-project <name>` | When adding a project | Registers it in the brain and anchors the repo |
-| `/start` | On opening each session | Loads the state and tells you the next step |
-| `/close` | On closing each task and the session | Saves what was done, what's left and why |
-| `/learn [topic]` | When you learn something that outlasts the day | Adds it to your knowledge graph |
+| Register repository | `/new-project` | `$sb-new-project` |
+| Resume | `/start` | `$sb-start` |
+| Brief → initial plan | `/kickoff` | `$sb-kickoff` |
+| Persist task/session | `/close` | `$sb-close` |
+| Capture reusable knowledge | `/learn` | `$sb-learn` |
 
----
+Start loads the shared hub, CONTEXT and active plan. Approve the plan, work, verify,
+then close before stopping. For work with no source changes, mark-dirty (part of
+the workflow) makes persistence requirements visible to the harness. Read-only
+sessions require no filler notes.
 
-## Where everything lives
+## Switching providers
 
-- The commands and rules: in `~/.claude/` (Claude Code config).
-- Your knowledge: in the **vault** (`~/second-brain` by default) — it's yours,
-  local, and you can version it in your own git repo whenever you want.
+```text
+Claude /close → vault persisted → Codex $sb-start
+Codex $sb-close → vault persisted → Claude /start
+```
 
-To uninstall, restore the backup the installer left in `~/.claude/backups/`
-and delete the vault folder if you no longer want it.
+Both resolve the same physical repo through `00-index/projects.json` and own the
+same `projects/<slug>/CONTEXT.md`. Worktrees use additional root aliases, not
+separate vault projects. Cross-repo work has one owning live context.
 
----
+Graphify is a **shared capability**. Its optional hub declaration is read by both
+providers. Refresh at session open when configured and available, query structure
+before broad source exploration, read the vault for why/state, inspect code for
+implementation. Small repos and missing Graphify use normal bounded searches.
 
-## Privacy
+## Architecture and compatibility
 
-Your brain is **local**. If you decide to sync it with a git repo, keep in
-mind the method is designed to **never** store secret values (tokens,
-passwords): it only records *names* of variables and where to get them. Even
-so, review before making any vault public.
+```text
+engine/
+  method/   shared semantics, templates, registry and close checker
+  claude/   commands, agents, global instructions, hooks and permissions
+  codex/    skills, TOML agents, global instructions, hooks and rules
+```
 
----
+v4 preserves Claude v3.x vaults, legacy anchors and personal settings. Migration,
+backups and rollback: [MIGRATION-v4.md](MIGRATION-v4.md). Full method:
+[engine/method/README.md](engine/method/README.md), installed at `<vault>/method/`.
 
-## How does it work under the hood?
+## Security and limitations
 
-For anyone who wants the detail, the full method specification (the
-architecture, the multi-agent system, the templates) lives inside your vault
-at `method/README.md` once installed.
+No secret values in notes, source control or configuration examples. Git mutations,
+destructive actions and external publishing require scoped authorization. Existing
+team instructions and user configuration are preserved. Codex uses the registry,
+never an automatically installed personal AGENTS.override.md in a project.
 
----
+Hooks need runtime support and trust. Codex PreCompact blocks; Claude PreCompact
+warns. Rules apply outside the sandbox; they are one layer with sandbox and
+approvals. Close receipts detect filesystem changes and explicit dirty markers,
+but cannot judge the accuracy of prose or unmarked conversation-only work.
+See [enforcement boundaries](engine/method/CLOSE-ENFORCEMENT.md).
+
+## Validation
+
+```bash
+bash tests/test-install.sh
+```
+
+The suite uses disposable HOME directories and fake repositories. It requires no
+provider login or model calls. Native Codex policy checks run when the CLI exists;
+static rules validation also runs without it. CI runs on macOS.
 
 ## License
 
-MIT — use it, adapt it and share it.
+MIT.

@@ -1,5 +1,5 @@
 <!-- Method guide — lives with the method, not copied into projects. -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # BRAIN.md — The persistent brain (Obsidian vault)
 
@@ -19,14 +19,14 @@ or MCP (Dataview/Bases are optional, for the human's queries).
 
 ```
 <vault>/
-  00-index/                 # MOCs: maps of content by topic (+ home.md)
+  00-index/                 # home.md, topic MOCs and projects.json registry
   projects/<project>/
     hub.md                  # what it is, macro state, local repo path
     CONTEXT.md              # live state (see CONTEXT.template.md)
     plans/                  # approved plans for large tasks
     sessions/               # closed history: YYYY-MM-DD.md
     decisions/              # the project's design decisions
-    graph/                  # generated code graph (AST, see plan v3)
+    graph/                  # optional graph notes (CLI output stays in repo)
   patterns/                 # recipes/patterns born from projects
   learning/                 # study: concepts, resources, TILs (see below)
     <topic>/                # concepts and resources of the topic
@@ -134,7 +134,7 @@ date: <YYYY-MM-DD>
 ## Learning layer (`learning/`)
 
 The brain isn't only about projects: it also stores what you study. Three note
-types, captured with the `/learn` command (or by hand):
+types, captured with the provider’s learn workflow (or by hand):
 
 - **concept** — durable idea explained in your own words. Atomic: one idea
   per note. `learning/<topic>/<slug>.md`
@@ -202,7 +202,7 @@ keeps a wikilink to the new note).
 
 ## How the method uses it
 
-### On opening a session (`/start`)
+### On opening a session (start)
 The parent reads `projects/<project>/CONTEXT.md` (+ the in-progress plan if
 any). For long historical context it consults `hub.md` and follows the
 wikilinks — it doesn't dig through old files.
@@ -223,3 +223,16 @@ history moves down to a `sessions/` note and CONTEXT.md keeps only what's live
 The vault isn't versioned inside the repos, but it's usually synced (Obsidian
 Sync, iCloud, private git). There too, **no** secret values, tokens or
 credentials: names of variables and where to obtain them, never the values.
+
+## Provider independence and ownership
+
+Both adapters resolve the same `00-index/projects.json` and use the same notes.
+The registry maps physical repository roots (including worktree aliases) to a
+single project; see PROJECT-REGISTRY.md. No provider-specific state copy exists.
+`Claude /close → CONTEXT.md persisted → Codex $sb-start` resumes the same work,
+and the reverse is equally valid. The parent is the sole writer of live state
+unless it explicitly delegates a bounded file update and reconciles the result.
+
+Cross-repo tasks have one owning CONTEXT in the primary project; other projects
+keep their own registry mapping and link to that task. Never maintain duplicate
+live states for one task. A provider switch changes the runtime, not ownership.

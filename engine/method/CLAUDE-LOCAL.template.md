@@ -8,7 +8,7 @@
   exists: they coexist, this doesn't replace it.
   The method's rules do NOT go here: they live in ~/.claude/CLAUDE.md.
 -->
-<!-- method-version: 3.3 -->
+<!-- method-version: 4.0 -->
 
 # <project-name> — personal anchor
 

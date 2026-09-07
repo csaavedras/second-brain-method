@@ -1,80 +1,27 @@
-<!--
-  TEMPLATE — copy the block below ONCE to
-  ~/.claude/commands/new-project.md and fill in <vault-path> and
-  <method-path>.
-  Project registration in one step: vault + CLAUDE.local.md + settings (§5.1).
-  v3.3: offers Graphify (opt-in) on large repos (GRAPHIFY.md).
--->
-<!-- method-version: 3.3 -->
+<!-- method-version: 4.0 -->
 
-# /new-project — project registration
+# New project — shared workflow
 
-Content for `~/.claude/commands/new-project.md`:
+1. Detect Git root physically. If no repository exists, propose git init only
+   with authorization. Resolve the registry first. An already registered root
+   resumes that slug; never rename or duplicate its vault state.
+2. Use the supplied kebab-case slug or derive it deterministically from the repo
+   basename when unambiguous. Ask if ambiguous or colliding with an unrelated
+   project. A worktree belongs to the existing project: add its root alias.
+3. Read BRAIN.md and CONTEXT.template.md. Create missing directories only:
+   `projects/<slug>/{plans,sessions,decisions}`. Create missing hub and CONTEXT with
+   frontmatter FIRST, replacing template placeholders with observed facts.
+   Hub: purpose, actual stack, local root, macro state, cached tree, convention
+   docs index and real validation commands from manifests. CONTEXT: actual
+   starting snapshot, live checklist and exact next action. Never overwrite
+   existing notes; an existing project may simply need a new root registered.
+4. Register with `bash @@REGISTRY_SH@@ --vault @@VAULT_SH@@ register <slug> <repo-root>`.
+   Add one wikilink to `projects/<slug>/hub` in `00-index/home.md`, without duplicates.
+5. Large repos only: offer optional Graphify; activate only if accepted, following
+   GRAPHIFY.md. Small repos do not need it. Save opt-in in the shared hub.
+6. Report new/preserved files, resolved slug and next command (start or kickoff).
 
-````markdown
----
-description: Register a project in the method — vault + repo scaffolding in one step
-argument-hint: [project-name]
----
-
-Register this project in the working method. Name: $ARGUMENTS
-(if empty, propose one from the current directory and wait for my OK).
-
-Method templates and guides: `<method-path>`.
-Vault: `<vault-path>`.
-
-## Pre-checks (if any fails, stop and report)
-
-1. You're at the root of a git repo. If there's no repo yet, propose
-   `git init` — it's a git command: requires my explicit approval.
-2. Neither `CLAUDE.local.md` here nor `<vault>/projects/<name>/` already
-   exists. If they do, the project is already registered: report the state
-   and stop.
-3. `git check-ignore -q CLAUDE.local.md` confirms the global gitignore
-   excludes it (if not, report before continuing).
-
-## Scaffolding in the vault — `projects/<name>/`
-
-1. Create `plans/`, `sessions/`, `decisions/`.
-2. `hub.md` per the BRAIN.md template: what it is (ask me if it's not clear
-   from the repo), absolute repo path, stack in one line, initial macro
-   state. Add a `## Repo tree` section with the folder tree (the cache /start
-   uses — without node_modules or build outputs).
-3. `CONTEXT.md` from `CONTEXT.template.md`:
-   - **New project**: state "just registered", empty todo list, "⭐ NEXT
-     SESSION" pointing to defining the first goal.
-   - **Existing repo**: the real starting snapshot — what's done, what's
-     missing, decisions already visible in the code. The sweep is done by
-     the Explore subagent, not this session.
-
-## Scaffolding in the repo (nothing versioned)
-
-4. `CLAUDE.local.md` from `CLAUDE-LOCAL.template.md`: 2-3 line description,
-   project brain paths, index of convention docs that **exist** (document,
-   don't invent; if none: "(none yet)"), and real build/test/lint commands
-   (read them from package.json/Makefile — don't invent them).
-5. `.claude/settings.local.json`:
-   - `allow`: the repo's real build/test/lint commands + reads (`grep`,
-     `find`, `ls`, `cat`) + `Read` of the vault.
-   - `deny`: `Read` of `.env*`, `*.pem`, `*.key`, `secrets/`,
-     `credentials/`, `.aws/`, `.ssh/`.
-   - `ask`: `git add/commit/push/checkout`, `rm`, `mv`.
-
-## Code graph (opt-in, large repos only)
-
-6. If the repo has **dozens or more source files** (where grep no longer
-   orients), **offer** to activate Graphify — never impose it or activate it
-   without an OK. If I accept: follow the 4 steps of "Activating in a repo"
-   in `<method-path>/GRAPHIFY.md` (keyless AST build, `.git/info/exclude`,
-   allowlist, section in CLAUDE.local.md). Small repos: don't even offer it.
-
-## Wrap-up
-
-7. Add the project to "Active projects" in `00-index/home.md` with a wikilink
-   to the hub.
-8. Report: files created, `<...>` placeholders left to fill in by hand, and
-   the reminder that the first work session is opened with `/start`.
-
-Fixed rules: don't touch anything versioned in the repo (the method is not
-imposed on the team) and don't run any git command without approval.
-````
+Do not put Codex personal instructions, overrides or config inside the repo.
+Claude adapter adds its compatibility anchor and local permissions separately;
+existing anchors are preserved. No team file or global Git config is modified.
+Registration is idempotent; validate before writing, stop on registry errors.

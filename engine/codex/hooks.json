@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash @@HOOK_SH@@ start",
+            "timeout": 10,
+            "statusMessage": "Second Brain: checking persistent state"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash @@HOOK_SH@@ stop",
+            "timeout": 10,
+            "statusMessage": "Second Brain: checking persistent state"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash @@HOOK_SH@@ precompact",
+            "timeout": 10,
+            "statusMessage": "Second Brain: checking persistent state"
+          }
+        ]
+      }
+    ]
+  }
+}

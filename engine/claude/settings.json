@@ -1,10 +1,65 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash @@HOOK_SH@@ start",
+            "timeout": 10,
+            "statusMessage": "Second Brain: checking persistent state"
+          }
+        ]
+      }
+    ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/check-close.sh stop", "timeout": 10, "statusMessage": "Method: checking session close" } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash @@HOOK_SH@@ stop",
+            "timeout": 10,
+            "statusMessage": "Second Brain: checking persistent state"
+          }
+        ]
+      }
     ],
     "PreCompact": [
-      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/check-close.sh precompact", "timeout": 10, "statusMessage": "Method: checking state before compacting" } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash @@HOOK_SH@@ precompact",
+            "timeout": 10,
+            "statusMessage": "Second Brain: checking persistent state"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "ask": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git branch:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(mv:*)",
+      "Bash(gh pr create:*)"
+    ],
+    "deny": [
+      "Read(**/.env*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/secrets/**)",
+      "Read(**/credentials/**)",
+      "Read(**/.aws/**)",
+      "Read(**/.ssh/**)"
     ]
   }
 }

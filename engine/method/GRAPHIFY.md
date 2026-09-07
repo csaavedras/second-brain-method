@@ -1,7 +1,7 @@
 <!-- Method guide — lives in this folder, read on demand. -->
-<!-- method-version: 3.3 -->
+<!-- method-version: 4.0 -->
 
-# GRAPHIFY.md — AST code graph (optional technique, subscription-only)
+# GRAPHIFY.md — AST code graph (optional, no model API required)
 
 Code graph for structural queries ("who calls X?", "what does Y depend on?")
 at **zero token cost and no API key**.
@@ -11,7 +11,7 @@ at **zero token cost and no API key**.
   orienting yourself means reading many files) → the graph pays off.
 - **Small repos** → **NO**: `grep` + the cached tree in `hub.md` already
   suffice and are simpler.
-- **Opt-in per repo**, not by default. `/new-project` may offer it, never
+- **Opt-in per repo**, not by default. The new-project workflow may offer it, never
   impose it.
 
 ## No-API-key mode (the only one we use)
@@ -41,14 +41,14 @@ Four steps, all personal — nothing versioned by the team is touched:
 2. **Exclude the output**: add `graphify-out/` to the repo's
    `.git/info/exclude` (personal per-repo exclusion; the team's `.gitignore`
    is not touched).
-3. **Allowlist**: add `"Bash(graphify:*)"` to the `allow` of
-   `.claude/settings.local.json` (queries are read-only).
-4. **Declare it**: copy the `## Code graph (Graphify)` section from
-   `CLAUDE-LOCAL.template.md` into the repo's `CLAUDE.local.md`. That
-   section is the signal `/start` uses to refresh the graph and apply the
-   3-layer rule. Without the section, the method ignores the graph.
+3. **Permissions**: retain normal runtime sandbox/approval gates for updates.
+   Queries are read-only. Do not broadly allow every Graphify subcommand.
+4. **Declare it**: add `## Code graph (Graphify)` to the project's shared
+   `hub.md` with the refresh command. Both runtimes read this opt-in. Claude
+   also honors an existing legacy anchor declaration; migrate it to the hub
+   for cross-provider use.
 
-`/new-project` offers these steps when registering a large repo; in an
+The new-project workflow offers these steps when registering a large repo; in an
 already-registered repo run them by hand once.
 
 ## CLI, not MCP
@@ -58,7 +58,7 @@ token cost contrary to this technique's goal. The CLI via Bash with an
 allowlist has ~0 context cost and does the same.
 
 ## Keeping it fresh (no tokens)
-`graphify update` runs in ~seconds at 0 tokens → cheap to rebuild: `/start`
+`graphify update` rebuilds the AST without model calls. The start workflow
 refreshes it when opening a session in repos with the graph declared (step 4
 of the activation). Per-repo alternatives if more freshness is ever needed:
 `graphify watch <path>` or a git hook — not part of the method.
@@ -74,4 +74,7 @@ of the activation). Per-repo alternatives if more freshness is ever needed:
 1. Structure ("who calls…?", "what depends on…?") → **graph** (`query`/
    `affected`/`explain`).
 2. Decisions / state / why → **vault** (CONTEXT, decisions, hub).
-3. Raw code → **only when editing**.
+3. Raw code → **when inspecting actual implementation or editing**.
+
+Claude Code and Codex share this CLI-first strategy and the same graph. If the CLI
+is missing, fall back to bounded searches; graph availability never blocks work.

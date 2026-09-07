@@ -1,66 +1,25 @@
 ---
-description: Register a project in the method — vault + repo scaffolding in one step
+description: Register a repository in the shared Second Brain vault.
 argument-hint: [project-name]
 ---
+<!-- method-version: 4.0 -->
 
-Register this project in the working method. Name: $ARGUMENTS
-(if empty, propose one from the current directory and wait for my OK).
+Vault: `@@VAULT@@`.
+Read and execute `@@VAULT@@/method/NEW-PROJECT-COMMAND.template.md`.
+This is the shared workflow contract; load other method guides only as it directs.
 
-Method templates and guides: `~/second-brain/method/`.
-Vault: `~/second-brain`.
+Use registry lookup first, then an unambiguous legacy `CLAUDE.local.md` anchor.
 
-## Pre-checks (if any fails, stop and report)
+For Claude compatibility, keep existing CLAUDE.local.md and
+.claude/settings.local.json. On a new Claude registration, create these personal
+files only after `git check-ignore -q CLAUDE.local.md` succeeds. Use the legacy
+anchor template, with the registry's context path and the hub's convention index.
+Merge local permissions, never replace them: allow only verified safe build/test/
+lint commands and vault reads; ask for Git mutations/rm/mv; deny secret-file reads
+(.env*, *.pem, *.key, secrets/, credentials/, .aws/, .ssh/). Preserve all existing
+allow/ask/deny entries. Do not modify team files or global Git configuration.
+If the anchor isn't ignored, report the needed personal exclusion before creating it.
 
-1. You're at the root of a git repo. If there's no repo yet, propose
-   `git init` — it's a git command: requires my explicit approval.
-2. Neither `CLAUDE.local.md` here nor `<vault>/projects/<name>/` already
-   exists. If they do, the project is already registered: report the state
-   and stop.
-3. `git check-ignore -q CLAUDE.local.md` confirms the global gitignore
-   excludes it (if not, report before continuing).
+Use `--legacy` with the shared close checker for anchor-only projects.
 
-## Scaffolding in the vault — `projects/<name>/`
-
-1. Create `plans/`, `sessions/`, `decisions/`.
-2. `hub.md` per the BRAIN.md template: what it is (ask me if it's not clear
-   from the repo), absolute repo path, stack in one line, initial macro
-   state. Add a `## Repo tree` section with the folder tree (the cache /start
-   uses — without node_modules or build outputs).
-3. `CONTEXT.md` from `CONTEXT.template.md`:
-   - **New project**: state "just registered", empty todo list, "⭐ NEXT
-     SESSION" pointing to defining the first goal.
-   - **Existing repo**: the real starting snapshot — what's done, what's
-     missing, decisions already visible in the code. The sweep is done by
-     the Explore subagent, not this session.
-
-## Scaffolding in the repo (nothing versioned)
-
-4. `CLAUDE.local.md` from `CLAUDE-LOCAL.template.md`: 2-3 line description,
-   project brain paths, index of convention docs that **exist** (document,
-   don't invent; if none: "(none yet)"), and real build/test/lint commands
-   (read them from package.json/Makefile — don't invent them).
-5. `.claude/settings.local.json`:
-   - `allow`: the repo's real build/test/lint commands + reads (`grep`,
-     `find`, `ls`, `cat`) + `Read` of the vault.
-   - `deny`: `Read` of `.env*`, `*.pem`, `*.key`, `secrets/`,
-     `credentials/`, `.aws/`, `.ssh/`.
-   - `ask`: `git add/commit/push/checkout`, `rm`, `mv`.
-
-## Code graph (opt-in, large repos only)
-
-6. If the repo has **dozens or more source files** (where grep no longer
-   orients), **offer** to activate Graphify — never impose it or activate it
-   without an OK. If I accept: follow the 4 steps of "Activating in a repo"
-   in `~/second-brain/method/GRAPHIFY.md` (keyless AST build,
-   `.git/info/exclude`, allowlist, section in CLAUDE.local.md). Small repos:
-   don't even offer it.
-
-## Wrap-up
-
-7. Add the project to "Active projects" in `00-index/home.md` with a wikilink
-   to the hub.
-8. Report: files created, `<...>` placeholders left to fill in by hand, and
-   the reminder that the first work session is opened with `/start`.
-
-Fixed rules: don't touch anything versioned in the repo (the method is not
-imposed on the team) and don't run any git command without approval.
+User arguments: $ARGUMENTS
