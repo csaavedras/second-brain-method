@@ -1,0 +1,9 @@
+# method-version: 4.0
+# Rules gate execution outside the sandbox; they are not a universal shell firewall.
+# Other reads stay in the sandbox: e.g. git diff has output/external-helper flags.
+prefix_rule(pattern = ["git", "status"], decision = "allow")
+prefix_rule(pattern = ["git", ["add", "commit", "push", "checkout", "switch", "branch", "reset", "clean", "merge", "rebase", "tag", "worktree", "fetch", "pull", "config"]], decision = "prompt", justification = "Git mutations and external operations require authorization.")
+prefix_rule(pattern = [["rm", "rmdir", "mv"]], decision = "prompt", justification = "Confirm destructive or moving operations.")
+prefix_rule(pattern = ["gh", "pr", "create"], decision = "prompt", justification = "Publishing a PR requires authorization.")
+prefix_rule(pattern = ["sudo"], decision = "prompt", justification = "System changes require authorization.")
+prefix_rule(pattern = ["rm", "-rf", "/"], decision = "forbidden", justification = "Never delete the filesystem root; use a bounded reviewed path.")

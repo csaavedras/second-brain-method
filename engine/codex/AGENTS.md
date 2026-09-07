@@ -18,9 +18,12 @@
   workers receive only their brief and return evidence. Model/effort routing
   follows semantic roles in `MODEL-ROUTING.md`, with no fixed model dependency.
 - Before persistible work (including planning with no code edits), run
-  `bash @@CORE_SH@@ --vault @@VAULT_SH@@ --legacy mark-dirty .`.
+  `bash @@CORE_SH@@ --vault @@VAULT_SH@@ mark-dirty .`.
 - Close every task/session before stopping or compacting; persist verified
   state and the active checklist, then record the receipt per the close workflow.
-- Commands: `/start`, `/close`, `/learn`, `/new-project`, `/kickoff`.
-- Legacy `CLAUDE.local.md` and personal permissions remain supported.
-- Worker roles: `implementer`, `tester`; read-only sweeps: native Explore.
+- Skills: `$sb-start`, `$sb-close`, `$sb-learn`, `$sb-new-project`, `$sb-kickoff`.
+- Workers: `second-brain-implementer`, `second-brain-tester`; explorer is built in.
+- Use workspace-write sandbox and on-request approvals; review rules/hooks.
+  Grant only this vault as an additional writable directory for persistence.
+- Preserve team AGENTS.md. Do not create personal AGENTS.override.md or
+  project .codex files. Review `/hooks` trust prompts; never bypass trust.
