@@ -1,68 +1,36 @@
-<!--
-  TEMPLATE — copy the block below ONCE to ~/.claude/commands/close.md.
-  Moves the close-rule detail out of the global CLAUDE.md (which is paid on
-  every message): the command only loads tokens when invoked.
-  Enforcement: Stop/PreCompact hooks (scripts/check-close.sh, README §6.3).
--->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
-# /close — task or session close
+# Close — shared workflow
 
-Content for `~/.claude/commands/close.md`:
+Resolve the project via PROJECT-REGISTRY.md (Claude may fall back to its legacy
+anchor). Use the owning vault project for cross-repo work. Never invent a project.
 
-````markdown
----
-description: Close a task or a session — persist the state in the vault
----
+1. Inspect repository status and summarize the actual changes. Run only appropriate
+   build/test/lint checks; record exact commands/results. Without passing evidence,
+   keep a task `[~]` rather than `[x]`.
+2. Save CONTEXT.md: ISO date, current state, changed tasks, decisions, findings and
+   open questions. For partial work write the exact next-session resume point:
+   files, pending decision, failing test and remaining command. Mark unconfirmed
+   findings explicitly. Review/update the active plan's checklist as appropriate.
+3. Record a durable non-obvious decision only when one was made, with rationale in
+   `decisions/` and a hub link. Record cross-project recipes in `patterns/`, study
+   in `learning/`, checking duplicates and BRAIN.md thresholds. Do not generate
+   filler notes to satisfy a checklist.
+4. At a milestone or CONTEXT >~150 lines, move closed history into
+   `sessions/YYYY-MM-DD.md` and link it from CONTEXT. Keep current state small.
+   Update the hub at milestones and its cached tree if structure changed.
+5. After all persistence writes and any authorized code commits complete, record
+   the detectable receipt (defer it until after steps 6–7 if those mutate code Git):
+   `bash @@CORE_SH@@ --vault @@VAULT_SH@@ persist <repo-root>`.
+   Claude anchor-only projects use `--legacy` before `persist`. This operation
+   never writes knowledge; it records the current repo/context metadata. Do not
+   call it to silence a hook without first saving actual state and checklist.
+6. Propose an English Conventional Commit (scope when useful, ≤100 characters).
+   Do not commit/push unless already explicitly authorized for this operation.
+7. Check vault Git status. If changed, summarize and, with authorization, commit
+   `chore(brain): YYYY-MM-DD close <project|study>`; push only if a remote exists
+   and permission covers it. A backup failure is reported but does not undo close.
+   Keep runtime metadata and secrets out of vault commits.
 
-Run the close per the method. Determine which case applies:
-
-## A. Closing a completed task
-
-1. **Verify before marking `[x]`**: run the appropriate build/test/lint and
-   record in CONTEXT.md the command and its result. Without green, the task
-   stays `[~]`.
-2. Update the vault's CONTEXT.md: task, new decisions, open questions,
-   "Current state" with ISO date `YYYY-MM-DD`.
-3. Record cross-cutting things in the brain: non-obvious decision →
-   `decisions/` (+ link in the hub); reusable learning → `patterns/` or
-   `learning/`.
-4. Leave the commit message ready: Conventional Commits with scope, English,
-   one line, ≤ 100 characters.
-
-Do not move to the next task until the 4 points are done.
-
-## B. Closing a session with a task half-done
-
-1. Mark the task `[~]` in the todo list.
-2. Write into "⭐ NEXT SESSION" the **exact** point: file being touched,
-   pending decision, failing test, command that still needs to run.
-3. Record partial findings (marked as unconfirmed).
-4. Update "Current state" with the date.
-
-Acid test: a new session must resume without asking anything.
-
-## Maintenance (check on every close)
-
-- Phase completed or CONTEXT.md > ~150 lines → move the closed history to the
-  project's `sessions/<YYYY-MM-DD>.md` and keep only what's live. Wikilink in
-  "Previous history".
-- The hub is updated only when closing **milestones**, not on every task.
-- If the repo tree changed structurally in this session, update the hub's
-  cached tree.
-
-## Brain backup (last step, ALWAYS)
-
-The vault (`<vault-path>`) is a git repo:
-
-1. `git -C <vault-path> status --porcelain` — if clean, done.
-2. If there are changes: show me the summary and **with my OK** run add +
-   commit: `chore(brain): YYYY-MM-DD close <project|study>` — a single commit
-   with everything from the session.
-3. If a remote is configured, push (also with my OK). If the push fails (no
-   network, no remote), report it and finish anyway: the backup never blocks
-   the close.
-
-Note: this versions ONLY the vault. Each project's code repos have their own
-git and their own rules (never without approval).
-````
+Do not move to the next task before verification and persistence. Work after a
+receipt requires another close. Both providers consume the exact same CONTEXT.

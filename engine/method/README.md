@@ -1,330 +1,101 @@
-# Working method with Claude Code
+<!-- method-version: 4.0 -->
 
-Single guide to the **personal** working method with Claude Code. It was born
-from a real project and is meant to be replicated in **any project**, new or
-existing, **without imposing anything on the team** of the repo.
+# Second Brain Method — v4.0
 
-This folder is the **source of truth of the method**: the guides (`README.md`,
-`BRAIN.md`, `MODEL-ROUTING.md`, `MULTI-AGENT.md`) explain the *why*; the
-templates (`*.template.md`) bring the *what gets instantiated*.
+The personal engineering method has one provider-agnostic core (`engine/method`)
+and two thin adapters (`engine/claude`, `engine/codex`). The installed core lives
+in the vault's `method/` and works without the original clone. v4.0 adds
+multi-provider Claude Code + Codex support without changing the vault as the
+source of truth. Runtime details and installation paths: [PROVIDERS.md](PROVIDERS.md).
 
-**Method version: 3.3** — each template and guide carries a
-`<!-- method-version: X.Y -->` comment. When improving a piece, bump the
-version here and in the pieces. To detect outdated copies:
-`grep -r "method-version" <instances>`.
+## Persistent state and personal setup
 
----
+The vault owns project `hub.md`, `CONTEXT.md`, plans, sessions, decisions, patterns,
+learning and briefs. Conversations and provider memory are never the only copy.
+Global instructions are a small personal layer; project lookup uses the personal
+[registry](PROJECT-REGISTRY.md). Team repository instructions remain authoritative
+for team conventions. Do not install personal Codex files in the team's repo.
+Legacy Claude anchors remain compatible; the registry is common to both runtimes.
 
-## 1. Philosophy in one line
-
-> The work context lives in a **personal file-based brain** (the Obsidian
-> vault), not in a conversation's memory nor in the team's repos. Each session
-> **starts by reading the state** and **closes by updating it**, so any new
-> session resumes without losing anything.
-
-The method is **personal**: the day-to-day decisions and state aren't shared
-with the team (everyone works with the AI their own way). In the repo only the
-simple team documentation remains; everything else lives in the vault.
-
-## 2. Architecture: two layers
-
-### Personal global layer (installed ONCE)
-
-| Piece | Role | Template / guide |
+| Action | Claude | Codex |
 |---|---|---|
-| `~/.claude/CLAUDE.md` | Always-active rules (thin: the close lives in `/close`); loaded in **all** your projects | `CLAUDE-GLOBAL.template.md` |
-| `~/.claude/commands/start.md` | `/start` — open a session (uses the hub's cached tree) | `START-COMMAND.template.md` |
-| `~/.claude/commands/close.md` | `/close` — close a task/session (only loads tokens when invoked) | `CLOSE-COMMAND.template.md` |
-| `~/.claude/commands/learn.md` | `/learn` — capture study in the vault's `learning/` | `LEARN-COMMAND.template.md` |
-| `~/.claude/commands/new-project.md` | `/new-project` — register a project in one step | `NEW-PROJECT-COMMAND.template.md` |
-| `~/.claude/commands/kickoff.md` | `/kickoff` — master prompt → register + brief + brain + first plan | `KICKOFF-COMMAND.template.md` |
-| `~/.claude/agents/<name>.md` | Domain subagents (implementer, tester). Sweeps → native **Explore**; review → native `/code-review` | `MULTI-AGENT.md` |
-| `~/.claude/hooks/check-close.sh` + hooks in `~/.claude/settings.json` | Close enforcement (Stop / PreCompact, §6.3) | `scripts/check-close.sh` |
-| `<vault>/` (Obsidian) | **The brain**: context, plans, sessions, decisions, patterns and study (`learning/`) | `BRAIN.md` |
+| Start | `/start` | `$sb-start` |
+| Close | `/close` | `$sb-close` |
+| Learn | `/learn` | `$sb-learn` |
+| Kickoff | `/kickoff` | `$sb-kickoff` |
+| New project | `/new-project` | `$sb-new-project` |
 
-### Per-project layer (when you start working in a repo)
+## Session cycle
 
-| Piece | Where | Role |
-|---|---|---|
-| `projects/<project>/` | vault | `hub.md` + `CONTEXT.md` + `plans/` + `sessions/` + `decisions/` |
-| `CLAUDE.local.md` | repo root — **global gitignore, not versioned** | Anchor: points to the vault, convention index, safe commands |
-| `.claude/settings.local.json` | repo — Claude Code excludes it from git automatically | Personal permission enforcement (§5.1) |
+Register → start → plan → human approval → bounded work → verify → close.
+Each `*-COMMAND.template.md` defines shared semantics; adapters only bind the
+provider's command/skill name, lookup compatibility and protocol. Read the
+relevant workflow when invoked; do not load every guide or the entire vault.
 
-In the repo, the only versioned thing is still the team's (convention docs,
-the team's `CLAUDE.md` if it exists). The method touches none of that.
+Before any persistible work, including design discussions with no code change,
+run `scripts/check-close-core.sh --vault <vault> mark-dirty <repo>`.
+Start reads hub, live context and only the active plan, then presents status and
+next action. Close records evidence, updates context and checklist, and records a
+persistence receipt. A session with an unfinished task saves its exact resume point.
 
-## 3. Templates and guides in this folder
+## Plan-before-code and gates
 
-| Template | Instantiated in |
-|---|---|
-| `CLAUDE-GLOBAL.template.md` | `~/.claude/CLAUDE.md` (once) |
-| `START-COMMAND.template.md` | `~/.claude/commands/start.md` (once) |
-| `CLOSE-COMMAND.template.md` | `~/.claude/commands/close.md` (once) |
-| `LEARN-COMMAND.template.md` | `~/.claude/commands/learn.md` (once) |
-| `NEW-PROJECT-COMMAND.template.md` | `~/.claude/commands/new-project.md` (once) |
-| `KICKOFF-COMMAND.template.md` | `~/.claude/commands/kickoff.md` (once) |
-| `PROJECT-BRIEF.template.md` | `<vault>/projects/<project>/brief.md` (per project — the **master prompt**; filled by the human or by `/kickoff` question by question) |
-| `scripts/check-close.sh` | `~/.claude/hooks/check-close.sh` + registration in `~/.claude/settings.json` (once) |
-| `scripts/brain-health.sh` | not copied: run from here (weekly) |
-| `CLAUDE-LOCAL.template.md` | `<repo>/CLAUDE.local.md` (per repo — generated by `/new-project`) |
-| `CONTEXT.template.md` | `<vault>/projects/<project>/CONTEXT.md` (per project — generated by `/new-project`) |
-| `TASK-BRIEF.template.md` | not instantiated: the parent agent fills it on each subagent dispatch |
+Present a concrete checklist and receive approval before implementation. Use the
+runtime's native plan/read-only mode when available. Persist approved plans for
+multi-session or >5-step tasks under `projects/<slug>/plans/YYYY-MM-DD-task.md`.
+CONTEXT references the plan rather than duplicating it. Existing explicit approval
+remains valid within its scope; new architecture decisions go to the human.
 
-| Guide | What it documents |
-|---|---|
-| `BRAIN.md` | The vault: structure, standard frontmatter, note templates (hub/decision/pattern/session), rules of use |
-| `MODEL-ROUTING.md` | Which model to use by task type (Explorer/Implementer/Reasoner) and when to escalate |
-| `MULTI-AGENT.md` | Parent → Subagents flow: roles, catalog, cycle, parallelism and security |
-| `GRAPHIFY.md` | AST code graph, optional and opt-in per large repo: activation, 0-token queries, 3-layer rule |
+Git mutation, destructive operations, writes outside the workspace and external
+publication require authorization. Feature/fix work uses its own branch. Never
+turn a one-time approval into a permanent permissive rule. No secrets: store only
+variable names and where access is obtained. Do not read secret files to orient.
 
-Each template brings `<...>` placeholders and `<!-- ... -->` comments to fill
-in. Replace all the `<...>` before considering the method installed.
+Instructions explain; sandbox, approvals, permissions, hooks and rules enforce
+what each runtime supports. [PROVIDERS.md](PROVIDERS.md) documents the actual
+boundaries, including rules' scope outside the sandbox and hook trust requirements.
 
-## 4. How to instantiate it
+## Context hygiene and Graphify
 
-### Global setup (only once)
-1. Create the vault with the structure from `BRAIN.md`.
-2. `CLAUDE-GLOBAL.template.md` → `~/.claude/CLAUDE.md` (fill in the vault path).
-3. Commands: `START-`, `CLOSE-`, `LEARN-`, `NEW-PROJECT-` and
-   `KICKOFF-COMMAND.template.md`
-   → `~/.claude/commands/{start,close,learn,new-project,kickoff}.md`.
-4. Define your generic-role subagents (`implementer`, `tester`) in
-   `~/.claude/agents/` (molds in `MULTI-AGENT.md`).
-5. Close hooks: `scripts/check-close.sh` → `~/.claude/hooks/` and register it
-   in the Stop and PreCompact events of `~/.claude/settings.json` (§6.3).
-6. Configure the global gitignore for `CLAUDE.local.md`:
-   `git config --global core.excludesFile ~/.gitignore_global` and add the line.
+Keep global instructions thin (roughly 40 lines). Load CONTEXT and an active plan;
+read convention docs only for the task, through the hub's one-line index. Cache the
+repo tree in the hub and refresh only when missing or structurally stale. Read
+large files in relevant sections. For bounded work, use [MULTI-AGENT.md](MULTI-AGENT.md)
+and [TASK-BRIEF.template.md](TASK-BRIEF.template.md); verify every worker report.
+Use the cheapest sufficiently capable model/effort per [MODEL-ROUTING.md](MODEL-ROUTING.md).
 
-### In each project (new or existing)
-A single step: at the repo root, **`/new-project <name>`** — it creates the
-project's folder in the vault (hub with cached tree + CONTEXT.md), the
-`CLAUDE.local.md` and the `.claude/settings.local.json` (§5.1), and registers
-the project in the vault's home. For existing repos, the initial CONTEXT.md is
-the real starting snapshot (the sweep is done by the Explore subagent).
+[Graphify](GRAPHIFY.md) is an optional shared CLI capability for large repos:
+structure → graph; why/state → vault; implementation → source. No mandatory MCP
+or API key. A missing CLI or a small repository never blocks normal exploration.
 
-Then each session is opened with `/start`.
+## Close enforcement
 
-## 5. Process rules (the heart of the method)
+Shared facts: `scripts/check-close-core.sh`. Provider wrappers translate those
+facts into lifecycle responses. SessionStart records a baseline; Stop checks
+tracked/untracked metadata, HEAD and explicit dirty markers against persistence.
+Stop blocks once and respects `stop_hook_active`. Codex PreCompact stops before
+compaction while dirty; Claude PreCompact warns (its runtime does not support
+blocking this event). Neither wrapper invents or writes knowledge.
 
-They live in `~/.claude/CLAUDE.md` and apply to all projects:
+The receipt is written only after CONTEXT and the active checklist have been
+saved. Subsequent edits invalidate it. Runtime receipts/baselines are disposable
+metadata in `.second-brain/runtime/` inside the vault, ignored by Git. They never
+replace notes. Do not parse provider transcripts: their formats are unstable.
+See [CLOSE-ENFORCEMENT.md](CLOSE-ENFORCEMENT.md) for detection boundaries.
 
-1. **Plan before code.** Code is never written without showing the plan and
-   receiving approval. For tasks that modify code the **native plan mode**
-   (§5.2) is used: approval is a harness gate, not a promise.
-2. **Git always with approval.** Never `git add` / `commit` / `push` /
-   `checkout` without explicit confirmation.
-3. **Destructive operations always with approval.** Never `rm` / `mv` on
-   files not created in the same session.
-4. **Explicit permissions enforced by the harness.** The policy is documented
-   in `CLAUDE.local.md` and **enforced** in `.claude/settings.local.json`
-   (§5.1). Prose explains; the settings enforce.
-5. **Branches with convention.** Feature/fix on their own branch
-   (`feat/<topic>`, `fix/<topic>`), never directly on `main`/`master`.
-   Creating the branch also requires approval (it's a git command).
-6. **Delegation with model routing.** Every delegable task is dispatched to a
-   subagent with a task brief (`TASK-BRIEF.template.md`) and with the cheapest
-   model that solves it well (`MODEL-ROUTING.md`). The parent verifies the
-   report before considering the task done (`MULTI-AGENT.md`).
+## Maintaining state
 
-### 5.1 Permissions: policy (CLAUDE.local.md) + enforcement (settings.local.json)
+A task is `[x]` only with appropriate passing verification recorded; use `[~]`
+for partial/unverified work. Archive completed phases or context over ~150 lines
+into project sessions, leaving only current state, next action, live checklist,
+current decisions and open questions. Update hub macro state at milestones and
+cached tree after structural changes. Record durable decisions and reusable
+learning only when warranted; note formats and thresholds: [BRAIN.md](BRAIN.md).
 
-Rules written in prose depend on the model respecting them. Claude Code has a
-real permission mechanism that makes them mandatory: `.claude/settings.local.json`
-at the repo root — the **personal** variant (Claude Code excludes it from
-version control automatically, so you touch nothing of the team's).
+Cross-repo tasks have exactly one owning CONTEXT in the primary vault project.
+Secondary projects keep their own registry mappings and link to the owning task.
+Never maintain two live states for the same task. Close with either runtime and
+start with the other against the same registry and context.
 
-Base example to adapt in each repo:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(make build:*)",
-      "Bash(make test:*)",
-      "Bash(make lint:*)",
-      "Bash(npx jest:*)",
-      "Bash(grep:*)",
-      "Bash(find:*)",
-      "Bash(cat:*)",
-      "Bash(ls:*)"
-    ],
-    "ask": [
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(git checkout:*)",
-      "Bash(rm:*)",
-      "Bash(mv:*)"
-    ]
-  }
-}
-```
-
-- `allow`: runs without asking (builds, tests, lint, reads).
-- `ask`: asks for confirmation **always**, even if the model "forgets" the rule.
-
-The `CLAUDE.local.md` documents the repo's safe commands; the
-settings.local.json enforces them. Keep both in sync.
-
-### 5.2 Native plan mode
-
-Claude Code ships an integrated plan mode: while active, the model can read
-and analyze but **cannot edit anything** until the human approves the plan
-explicitly. The method's rule: *"for any task that modifies code, enter plan
-mode and present the plan as a todo list before touching files"*.
-
-### 5.3 Persisted plans for large tasks
-
-The approved plan lives in the conversation and dies with it. For large tasks
-(several sessions, or more than ~5 steps), on approval it's saved in:
-
-```
-<vault>/projects/<project>/plans/<YYYY-MM-DD>-<task>.md
-```
-
-with the steps as a checklist (`[ ]` / `[x]`). CONTEXT.md's todo list
-**references** the plan instead of duplicating it. If the session is cut mid
-execution, the next one resumes from the persisted plan, not from memory.
-
-### 5.4 Context hygiene (token consumption)
-
-The session's context is the method's most expensive resource: everything
-loaded in excess is paid on every message. Rules:
-
-1. **Thin auto-loaded files.** `~/.claude/CLAUDE.md` and `CLAUDE.local.md` are
-   loaded in full on every session → cap of **~100 lines** between both per
-   project. Long detail goes to on-demand docs.
-2. **Two-level reading on session open:**
-   - ALWAYS: the vault's `CONTEXT.md` (+ the in-progress plan if any).
-   - ON DEMAND: the convention docs are listed in `CLAUDE.local.md` as an
-     **index with a one-line description**; the agent reads only the ones
-     relevant to the day's task, and reports which it'll read and why.
-3. **Broad searches → delegate them.** Code sweeps aren't done in the main
-   session (they pollute the context with dumps); they're delegated to a
-   read-only subagent and only the conclusion comes back. In repos with an
-   active Graphify graph (opt-in, `GRAPHIFY.md`), **structural** questions
-   ("who calls…?") go to the graph first: it answers at 0 tokens with no
-   sweep or subagent.
-4. **Large files → read by sections**, not in full.
-5. **Delegate vs. inline:** a 1-2 step task on already-known files → inline
-   (delegating would cost more context than it saves); a broad sweep or a
-   self-contained task that generates lots of intermediate output → subagent.
-
-## 6. Task close rule
-
-On completing **each** todo-list task, before moving to the next:
-
-1. **Verify before marking `[x]`.** Run the appropriate build/test/lint and
-   record in CONTEXT.md **which command ran and with what result**. Without
-   green, the task stays `[~]`.
-2. Update the vault's `CONTEXT.md`: task `[x]`, new decisions, open questions,
-   "Current state" with ISO date `YYYY-MM-DD`.
-3. **Record in the brain** what has cross-cutting value: non-obvious decision
-   → `decisions/` (+ link in the hub); reusable learning → `patterns/` (see
-   `BRAIN.md`).
-4. Leave the commit message **ready to copy** (Conventional Commits, English,
-   one line, ≤ 100 chars).
-
-You don't move to the next task until the 4 points are done.
-
-The rule is executed by invoking **`/close`** (so the detail isn't paid in
-tokens on every message: it lives in the command, not in the global CLAUDE.md).
-
-### 6.1 Closing a session mid-task
-
-If the session ends with a task half-done (time, context, or a blocker):
-
-1. Mark the task as `[~]` in the todo list.
-2. Write into "⭐ NEXT SESSION" the **exact** point: file being touched,
-   pending decision, failing test, command that still needs to run.
-3. Record partial findings even if unconfirmed (mark them).
-4. Update "Current state" with the date.
-
-The acid test: a new session must be able to resume without asking anything.
-
-### 6.2 Archiving CONTEXT.md
-
-When a **phase/milestone is completed**, or the file exceeds **~150 lines**:
-the closed history moves down to a `sessions/` note of the project in the
-vault (template in `BRAIN.md`), and in CONTEXT.md only these remain: current
-state, "⭐ NEXT SESSION", live todo list, **current** decisions and open
-questions. Leave the wikilink to the archived session in "Previous history".
-
-### 6.3 Close enforcement (hooks)
-
-The close rule written in prose depends on the model respecting it; two
-harness hooks make it mandatory (same principle as §5.1: prose explains, the
-settings enforce). Script: `scripts/check-close.sh`, instantiated in
-`~/.claude/hooks/` and registered in `~/.claude/settings.json`:
-
-- **Stop**: if the session ends in a repo with `CLAUDE.local.md` and the
-  vault's CONTEXT.md wasn't modified since the session started, it blocks
-  **once** and requires running `/close` (or explicitly declaring it was a
-  read-only session).
-- **PreCompact**: before a compaction with unpersisted state, it warns the
-  human and instructs the model to dump the state before the compaction
-  (which is lossy) decides what survives.
-
-In repos without `CLAUDE.local.md` the hooks stay silent: casual sessions pay
-nothing.
-
-## 7. The session cycle
-
-```
-Open a session in the repo
-   └─ /start
-        └─ Claude reads CLAUDE.local.md → locates the project in the vault
-             └─ reads CONTEXT.md (+ in-progress plan); conventions only the
-                ones relevant to the task, per the index (§5.4)
-                  └─ reports state + tree (cached in the hub, doesn't
-                     re-explore) + next step + which docs it'll read,
-                     and waits for confirmation
-                       └─ plan (plan mode) → human approval
-                            └─ [for each task of the plan]
-                                  inline or delegate? (§5.4)
-                                    ├─ inline: direct changes by the parent
-                                    └─ delegate: brief → subagent (model per
-                                       MODEL-ROUTING.md) → report
-                                  → parent verifies (build/test green) →
-                                    /close: updates CONTEXT.md + brain →
-                                    leaves commit message
-                                       └─ (git only with your OK)
-```
-
-What's learned that transcends the project is captured at any time with
-`/learn` (the vault's `learning/` layer, see BRAIN.md).
-
-`~/.claude/CLAUDE.md` and `CLAUDE.local.md` aren't listed in the reading:
-Claude Code loads them automatically on opening the session.
-
-## 8. Tasks that cross repos
-
-A feature can touch several repos (a lib + an API, for example). The vault
-simplifies it:
-
-- The task lives in **one single** `projects/<project>/` of the vault — the
-  one for the main repo (usually where the result is seen). Its CONTEXT.md is
-  the sole owner of the state and records what's touched in each repo and why.
-- The secondary repos' `CLAUDE.local.md` don't change: they keep pointing to
-  their own vault project, and their hub can link the foreign task.
-- Never two CONTEXT.md carrying the state of the same task in parallel.
-
-## 9. Content security
-
-- The vault isn't versioned in the repos, but it's usually **synced**
-  (Obsidian Sync, iCloud, private git): there too no secret values go.
-- `CLAUDE.local.md` is gitignored but lives inside the repo: same rule.
-- In environment notes: **names** of variables and where to obtain their
-  values (Secrets Manager, local `.env`, whom to ask for access) — **never**
-  values of secrets, tokens or credentials.
-
-## 10. Maintaining this method
-
-- If you improve a rule in an instance (your `~/.claude/CLAUDE.md`, a
-  `CLAUDE.local.md`), update the **template** in this folder, bump the version
-  (`method-version`) here and in the pieces, and propagate to the instances.
-- The guides explain the *why*; the templates bring the *what gets copied*.
-  Don't duplicate template content inside the guides.
-- **Permanent home:** this folder lives in `<vault>/method/` — the method
-  travels with the brain and doesn't depend on any repo. (`brain-health.sh`
-  excludes `method/` from the check: its files are not notes in the graph.)
+Improve shared semantics here, provider primitives in adapters. Keep every
+method-version marker at 4.0 for this release; never manually duplicate workflows.

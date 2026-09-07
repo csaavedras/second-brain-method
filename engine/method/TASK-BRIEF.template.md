@@ -5,7 +5,7 @@
   Quality rule: the subagent should NOT need anything outside this brief.
   See MULTI-AGENT.md and MODEL-ROUTING.md.
 -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # TASK BRIEF — <short task title>
 
@@ -37,7 +37,7 @@
 ## Constraints (method-fixed — do not edit)
 - Work ONLY within this brief's scope; if something is missing, report it as
   a blocker, don't resolve it on your own.
-- Don't run git commands. Don't modify CONTEXT.md or state files.
+- Don't mutate Git. Don't modify CONTEXT.md or state files unless this exact file is explicitly delegated.
 - Don't make design decisions: doubts come back in the report.
 
 ## Report format (mandatory, max ~30 lines)

@@ -18,7 +18,7 @@ project: <project>
 date: <YYYY-MM-DD>
 status: active
 ---
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # CONTEXT.md — <project-name>
 
@@ -40,7 +40,7 @@ Last update date: <YYYY-MM-DD>
 ## Task summary
 <!-- General goal, ticket/epic, subtasks if applicable.
      If the task crosses repos: this vault project is the sole owner of the
-     state; record here what's touched in each repo (see README §8). -->
+     state; record here what's touched in each repo (see BRAIN.md (cross-repo ownership)). -->
 <...>
 
 ## Design decisions made

@@ -1,12 +1,12 @@
 <!--
   TEMPLATE — the MASTER PROMPT of a project. Filled in ONCE at kickoff (by
-  hand, or with the agent question by question via /kickoff) and persisted in
+  hand, or with the agent question by question via the kickoff workflow) and persisted in
   <vault>/projects/<project>/brief.md.
   It's the source of truth of the VISION: not rewritten, amended.
   Quality rule: if you don't know a section, write "TO DECIDE" — that gets
   resolved with the agent in plan mode, not invented.
 -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 ---
 type: brief

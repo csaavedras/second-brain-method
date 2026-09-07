@@ -4,7 +4,8 @@
 # and possible secrets (the vault is synced: never credential values).
 # Usage: brain-health.sh [vault-path]
 set -u
-VAULT="${1:-$HOME/second-brain}"
+DEFAULT_VAULT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+VAULT="${1:-$DEFAULT_VAULT}"
 [ -d "$VAULT" ] || { echo "ERROR: vault does not exist: $VAULT"; exit 2; }
 
 TMP=$(mktemp -d)
@@ -14,6 +15,7 @@ trap 'rm -rf "$TMP"' EXIT
 # and .obsidian/.trash are excluded from the check.
 find "$VAULT" -name '*.md' -type f \
   -not -path "$VAULT/method/*" \
+  -not -path "$VAULT/.second-brain/*" \
   -not -path "$VAULT/.obsidian/*" \
   -not -path "$VAULT/.trash/*" | sort > "$TMP/files"
 sed -E 's|.*/||; s|\.md$||' "$TMP/files" | sort -u > "$TMP/basenames"
