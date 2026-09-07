@@ -1,0 +1,1 @@
+{"model":"personal-choice","permissions":{"allow":["Bash(custom-test:*)"],"deny":["Read(private/**)"]},"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"echo my-check-close"},{"type":"command","command":"~/.claude/hooks/check-close.sh stop"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo personal"}]}]}}
