@@ -1,5 +1,5 @@
 <!-- Method guide — lives in this folder, not copied into projects. -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # MULTI-AGENT.md — Parent → Subagents flow
 
@@ -32,8 +32,10 @@ intermediate output) and **security** (the state and git have a single owner).
   it's the only one that does so.
 - For each task in the approved plan it decides: inline or delegate? (context
   hygiene heuristic, README §5.4).
-- If it delegates: it writes the **task brief** (TASK-BRIEF.template.md),
-  picks the subagent from the catalog and the model per MODEL-ROUTING.md.
+- If it delegates: it writes the **task brief** (TASK-BRIEF.template.md) with
+  measurable acceptance criteria, consults SKILLS-REGISTRY.md to name 0–2
+  skills, and picks the subagent from the catalog and the model per
+  MODEL-ROUTING.md.
 - On receiving the report: it **verifies the evidence** before marking `[x]`
   — it never trusts the subagent's "done" without verifying. If the report
   brings the literal green output, re-running the cheapest command (lint or
@@ -52,8 +54,14 @@ Fixed rules (they go in the prompt of every subagent definition):
 3. **Don't modify** CONTEXT.md or method state files.
 4. **Don't make design decisions**: doubts go back to the parent in the
    report, and if they're decisions, from the parent to the human.
-5. Verify with the commands from the brief's "Definition of done" and return
-   the report in the required format (max ~30 lines).
+5. **Not done until every acceptance criterion has evidence.** Run the
+   brief's "Acceptance criteria" commands, exercise each behavior item, and
+   return the report in the required format (max ~30 lines) with one line of
+   evidence per criterion. The `check-brief.sh` hook (SubagentStop) blocks
+   reports that come back without verification evidence — the rule is
+   enforced by the harness, not by obedience.
+6. Invoke only the skills named in the brief ("Skills to use"); never browse
+   or fetch skills on your own (SKILLS-REGISTRY.md).
 
 ## Subagent catalog
 
@@ -83,7 +91,7 @@ anything to the team's repos:
 ---
 name: implementer
 description: Implements a code task from a task brief, in ANY stack. Detects the repo's stack and follows its conventions.
-tools: Read, Edit, Write, Bash, Glob, Grep
+tools: Read, Edit, Write, Bash, Glob, Grep, Skill
 model: sonnet
 ---
 
@@ -97,10 +105,11 @@ Fixed rules:
   blocker, don't resolve it on your own.
 - Don't run git commands. Don't modify CONTEXT.md or state files.
 - Don't make design decisions: doubts go in the report.
-- Before finishing, run the "Definition of done" commands and paste the
-  literal result in the report.
+- You are not done until every acceptance criterion has evidence: run the
+  brief's "Acceptance criteria" commands and paste the literal result.
 - Report (max ~30 lines): detected stack, files touched (1 line each),
-  verification (command + result), findings, doubts/blockers.
+  verification (command + result), criteria evidence (1 line per
+  criterion), findings, doubts/blockers.
 ```
 
 The same mold serves `tester` — the description and focus change (detect the
@@ -112,19 +121,51 @@ test framework and mimic the style of the neighboring tests).
 parent takes the next task from the approved plan
   └─ inline or delegate? (README §5.4)
        └─ delegate: brief → subagent (model per MODEL-ROUTING.md)
-            └─ report → parent VERIFIES the evidence (build/test)
-                 ├─ green → updates CONTEXT.md → commit message → next
+            └─ report → parent VERIFIES the evidence (build/test +
+               criteria evidence)
+                 ├─ green → /gate (code destined for commit/MR)
+                 │      ├─ READY → /close: CONTEXT.md + metrics +
+                 │      │           commit message → next
+                 │      └─ NOT-READY → fix briefs (gate findings) →
+                 │                     re-dispatch (counts as a cycle)
                  └─ fail/doubts → fix the brief or ESCALATE the model
                                    (MODEL-ROUTING.md) and re-dispatch
 ```
 
+**Cycle cap: 2.** The same task is re-dispatched at most **twice** for the
+same failing criterion or gate finding — whether via escalation or gate
+fixes. On the third failure the problem is no longer the subagent: either
+the brief is badly written (rewrite it) or there's a design decision hiding
+inside (up to the human). An agent polishing in circles never converges —
+the cap forces the diagnosis upward.
+
 ## Parallelism
 
 - Two or more **independent tasks with no shared files** can be dispatched in
-  parallel.
+  parallel. The partition is decided by the parent when planning: split by
+  file ownership, not by theme — if two tasks "about different things" touch
+  the same module, they are sequential.
 - **Never** two subagents on the same files at the same time.
 - The parent integrates the reports **sequentially**, verifying after each
   integration (not at the end of all of them).
+- **`/gate` runs after integrating**, on the combined diff — never per
+  subagent. Reviewing fragments blesses parts that break in combination.
+
+## Fork: the exception that inherits context
+
+The brief-based subagents above start **cold** — that's the point (token and
+context isolation). Claude Code also offers **fork**: a subagent that
+inherits the parent's full conversation and model. Use it only when the task
+*needs the history* but its output would pollute the parent:
+
+| Situation | Dispatch |
+|---|---|
+| Well-defined task, self-contained scope | Cold subagent + brief (default) |
+| Needs the session's decisions/discussion to do the work (e.g. drafting a doc from the conversation, a risky experiment over the current state) | Fork |
+
+A fork ignores model routing (it always runs the parent's model) — so it's
+never the cheap path; it's the context-preserving path. Same fixed rules
+apply: no git, no CONTEXT.md, doubts come back.
 
 ## Security rules
 

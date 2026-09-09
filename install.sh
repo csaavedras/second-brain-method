@@ -6,7 +6,7 @@
 #         By default the vault is created at ~/second-brain
 #
 # What it does: installs the method config into ~/.claude (backing up whatever
-# was there), MERGES the method's 2 hooks into your settings.json without
+# was there), MERGES the method's hooks into your settings.json without
 # clobbering your config, and creates the vault (folders + home + git init).
 # It uploads nothing and writes no secrets. See README.md for the walkthrough.
 set -euo pipefail
@@ -62,8 +62,8 @@ mkdir -p "$CLAUDE_DIR/commands" "$CLAUDE_DIR/agents" "$CLAUDE_DIR/hooks"
 cp "$ENGINE/claude/CLAUDE.md"            "$CLAUDE_DIR/CLAUDE.md"
 cp "$ENGINE"/claude/commands/*.md        "$CLAUDE_DIR/commands/"
 cp "$ENGINE"/claude/agents/*.md          "$CLAUDE_DIR/agents/"
-cp "$ENGINE/claude/hooks/check-close.sh" "$CLAUDE_DIR/hooks/"
-chmod +x "$CLAUDE_DIR/hooks/check-close.sh"
+cp "$ENGINE"/claude/hooks/*.sh           "$CLAUDE_DIR/hooks/"
+chmod +x "$CLAUDE_DIR"/hooks/*.sh
 
 # --- 4. MERGE the method's hooks into your settings.json (no clobber) ------
 echo "▸ Merging the method's hooks into settings.json (preserves your config)"
@@ -71,12 +71,18 @@ USER_S="$CLAUDE_DIR/settings.json"
 DIST_S="$ENGINE/claude/settings.json"
 if [ -f "$USER_S" ]; then
   TMP="$(mktemp)"
+  # Generic, idempotent merge: for every hook event the method ships, drop
+  # any previously-installed method entries (matched by script name) from the
+  # user's config and append the method's current ones. User hooks survive.
   jq -s '
     .[0] as $u | .[1] as $d
     | $u
     | .hooks = (.hooks // {})
-    | .hooks.Stop       = (((.hooks.Stop // [])       | map(select(([.hooks[]?.command] | join(" ") | test("check-close")) | not))) + $d.hooks.Stop)
-    | .hooks.PreCompact = (((.hooks.PreCompact // []) | map(select(([.hooks[]?.command] | join(" ") | test("check-close")) | not))) + $d.hooks.PreCompact)
+    | .hooks = reduce ($d.hooks | keys[]) as $ev (.hooks;
+        .[$ev] = (((.[$ev] // [])
+                    | map(select(([.hooks[]?.command] | join(" ")
+                                  | test("check-close|check-brief|metrics-event")) | not)))
+                  + $d.hooks[$ev]))
   ' "$USER_S" "$DIST_S" > "$TMP" && mv "$TMP" "$USER_S"
 else
   cp "$DIST_S" "$USER_S"
@@ -129,7 +135,8 @@ fi
 if [ "~/$BAKED_VAULT" != "$DISPLAY" ]; then
   echo "▸ Adjusting the method's paths to the vault ($DISPLAY)"
   FILES=("$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR"/commands/*.md \
-         "$VAULT_PATH/method/scripts/brain-health.sh")
+         "$VAULT_PATH/method/scripts/brain-health.sh" \
+         "$VAULT_PATH/method/scripts/brain-metrics.sh")
   for f in "${FILES[@]}"; do
     [ -f "$f" ] || continue
     sed -i '' "s#~/$BAKED_VAULT#$DISPLAY#g; s#\\\$HOME/$BAKED_VAULT#$SHELLF#g" "$f"
@@ -146,7 +153,12 @@ if [ "~/$BAKED_VAULT" != "$DISPLAY" ] \
    && grep -rIl "$BAKED_VAULT" "$CLAUDE_DIR"/CLAUDE.md "$CLAUDE_DIR"/commands/*.md >/dev/null 2>&1; then
   echo "  ✗ some paths were not adjusted — check by hand"; exit 1
 fi
-echo "  ok — commands installed, hooks merged, vault paths OK"
+HOOKS_OK=$(jq -r '[.hooks // {} | to_entries[].value[].hooks[]?.command] | join(" ")
+                  | (test("check-close") and test("check-brief") and test("metrics-event"))' "$USER_S" 2>/dev/null)
+if [ "$HOOKS_OK" != "true" ]; then
+  echo "  ✗ method hooks missing from settings.json — check by hand"; exit 1
+fi
+echo "  ok — commands installed, hooks merged (close/brief/metrics), vault paths OK"
 echo ""
 echo "  Vault:"
 find "$VAULT_PATH" -maxdepth 2 -type d -not -path '*/.git*' | sed "s#$VAULT_PATH#    .#"

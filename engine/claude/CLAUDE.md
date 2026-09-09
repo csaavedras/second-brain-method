@@ -1,4 +1,4 @@
-<!-- method-version: 3.2 — instance of CLAUDE-GLOBAL (thinned: the close
+<!-- method-version: 4.0 — instance of CLAUDE-GLOBAL (thinned: the close
      detail lives in /close). Source: ~/second-brain/method/ -->
 
 # Personal working method
@@ -27,7 +27,10 @@
   and **delegates the changes**. Choose by goal (not by habit): search →
   **Explore**; implement → **`implementer`**; tests → **`tester`**; diff
   review → **`/code-review`**. The subagents are **generic-role** and detect
-  the repo's stack — conventions live in its `CLAUDE.local.md`.
+  the repo's stack — conventions live in its `CLAUDE.local.md`. Briefs carry
+  acceptance criteria + 0–2 skills from `method/SKILLS-REGISTRY.md`.
+- Code destined for a commit/MR → `/gate` on the integrated diff; only a
+  READY verdict enables leaving the commit message (detail in the command).
 - Model by use (Explorer→Haiku · Implementer→Sonnet · Reasoner→Opus): every
   delegable task goes to the **cheapest model that solves it well** (detail
   in `method/MODEL-ROUTING.md` and `MULTI-AGENT.md`).

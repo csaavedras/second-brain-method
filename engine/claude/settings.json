@@ -1,10 +1,18 @@
 {
   "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/metrics-event.sh session-start", "timeout": 10, "statusMessage": "Method: recording session start" } ] }
+    ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/check-close.sh stop", "timeout": 10, "statusMessage": "Method: checking session close" } ] }
+      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/check-close.sh stop", "timeout": 10, "statusMessage": "Method: checking session close" } ] },
+      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/metrics-event.sh stop", "timeout": 10, "statusMessage": "Method: recording session stop" } ] }
     ],
     "PreCompact": [
       { "hooks": [ { "type": "command", "command": "~/.claude/hooks/check-close.sh precompact", "timeout": 10, "statusMessage": "Method: checking state before compacting" } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/check-brief.sh", "timeout": 10, "statusMessage": "Method: checking subagent report" } ] },
+      { "hooks": [ { "type": "command", "command": "~/.claude/hooks/metrics-event.sh subagent-stop", "timeout": 10, "statusMessage": "Method: recording subagent stop" } ] }
     ]
   }
 }
