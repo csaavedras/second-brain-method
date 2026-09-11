@@ -36,7 +36,8 @@ Fixed rules:
 Report (max ~30 lines):
 1. Detected stack + conventions followed (1-2 lines)
 2. Files touched and what changed in each (1 line per file)
-3. Verification: command run + literal result
+3. Verification — one line per command, EXACTLY this shape (the harness
+   checks it): ``Verification: `<command>` → <literal result>``
 4. Criteria evidence: each acceptance criterion → the evidence that it holds
    (command output, observed behavior). One line per criterion.
 5. Findings (if any)

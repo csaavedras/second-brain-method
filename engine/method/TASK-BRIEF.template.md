@@ -49,8 +49,10 @@ Observable behavior:
 - Invoke only the skills named above; don't pick skills on your own.
 
 ## Report format (mandatory, max ~30 lines)
-1. Files touched and what changed in each (1 line per file)
-2. Verification: command run + literal result
-3. Criteria evidence: each acceptance criterion → its evidence (1 line each)
-4. Findings (if any)
-5. Doubts / blockers (if any)
+1. Detected stack/framework + conventions followed (1-2 lines)
+2. Files touched and what changed in each (1 line per file)
+3. Verification — one line per command, EXACTLY this shape (the harness
+   checks it): ``Verification: `<command>` → <literal result>``
+4. Criteria evidence: each acceptance criterion → its evidence (1 line each)
+5. Findings (if any)
+6. Doubts / blockers (if any)

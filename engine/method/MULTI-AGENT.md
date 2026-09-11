@@ -57,9 +57,12 @@ Fixed rules (they go in the prompt of every subagent definition):
 5. **Not done until every acceptance criterion has evidence.** Run the
    brief's "Acceptance criteria" commands, exercise each behavior item, and
    return the report in the required format (max ~30 lines) with one line of
-   evidence per criterion. The `check-brief.sh` hook (SubagentStop) blocks
-   reports that come back without verification evidence — the rule is
-   enforced by the harness, not by obedience.
+   evidence per criterion. Verification lines use the machine-checkable
+   shape ``Verification: `<command>` → <literal result>`` — the
+   `check-brief.sh` hook (SubagentStop) checks the final report of every
+   subagent dispatched with a TASK BRIEF and blocks it (once) when it lacks
+   such a line or a "Criteria evidence" section; the rule is enforced by the
+   harness, not by obedience.
 6. Invoke only the skills named in the brief ("Skills to use"); never browse
    or fetch skills on your own (SKILLS-REGISTRY.md).
 

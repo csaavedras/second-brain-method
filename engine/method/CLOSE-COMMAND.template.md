@@ -29,13 +29,21 @@ Run the close per the method. Determine which case applies:
    → the close stops here; the open findings decide the next step.
 3. Update the vault's CONTEXT.md: task, new decisions, open questions,
    "Current state" with ISO date `YYYY-MM-DD`.
-4. **Metrics**: run
-   `<vault-path>/method/scripts/collect-metrics.sh` for this session, ask me
-   two things — task `type` (feat / bug / refactor / spike) and optional
-   `estimate` (points or time I had assigned) — and append the resulting
-   line to `<vault-path>/projects/<project>/metrics/metrics.jsonl` (schema
-   in `method/METRICS.md`). If the script fails, report it and continue:
-   the close never blocks on telemetry.
+4. **Metrics**: ask me two things — task `type` (feat / bug / refactor /
+   spike) and optional `estimate` (points or time I had assigned) — then run
+   the collector and append its stdout line (it emits the complete record):
+
+   ```
+   <vault-path>/method/scripts/collect-metrics.sh \
+     <transcript> <vault-path>/projects/<project>/metrics/events.jsonl \
+     --task "<short title>" --type <type> [--estimate "<estimate>"] \
+     >> <vault-path>/projects/<project>/metrics/metrics.jsonl
+   ```
+
+   `<transcript>` is this session's JSONL: the most recently modified file
+   in `~/.claude/projects/<cwd-with-slashes-as-dashes>/*.jsonl`. Schema in
+   `method/METRICS.md`. If the script fails, report it and continue: the
+   close never blocks on telemetry.
 5. Record cross-cutting things in the brain: non-obvious decision →
    `decisions/` (+ link in the hub); reusable learning → `patterns/` or
    `learning/`.

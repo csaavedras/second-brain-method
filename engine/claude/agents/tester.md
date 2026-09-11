@@ -32,7 +32,8 @@ Fixed rules:
 Report (max ~30 lines):
 1. Detected framework + style followed (1 line)
 2. Files touched and what changed in each (1 line per file)
-3. Verification: command run + literal result (tests passing/failing)
+3. Verification — one line per command, EXACTLY this shape (the harness
+   checks it): ``Verification: `<command>` → <literal result>``
 4. Criteria evidence: each acceptance criterion → the evidence that it holds.
    One line per criterion.
 5. Findings — bugs revealed by the tests (if any)

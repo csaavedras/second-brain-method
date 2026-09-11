@@ -13,15 +13,17 @@ ceremonies, ~5 seconds of human input per closed task.
 ## How it's captured (three layers)
 
 1. **Hook events** (`metrics-event.sh`, registered on SessionStart /
-   SubagentStop / Stop): appends `{event, ts, session_id}` lines to
-   `<vault>/projects/<project>/metrics/events.jsonl`. Silent, always exit 0
-   — **telemetry never blocks the flow**. Repos without `CLAUDE.local.md`
-   log nothing.
+   SubagentStop / Stop): appends `{event, ts, epoch, session_id}` lines to
+   `<vault>/projects/<project>/metrics/events.jsonl` — `epoch` (Unix
+   seconds) is what the collector's duration math reads; `ts` (ISO-8601) is
+   for humans. Silent, always exit 0 — **telemetry never blocks the flow**.
+   Repos without `CLAUDE.local.md` log nothing.
 2. **Per-task collection** (`scripts/collect-metrics.sh`, invoked by
    `/close`): parses the session transcript (`~/.claude/projects/…/*.jsonl`)
    with `jq` — token usage per model, parent vs. sidechain (subagents) —
-   and crosses it with `events.jsonl` for durations. The human adds two
-   fields at close: `type` and `estimate`.
+   and crosses it with this session's lines in `events.jsonl` (filtered by
+   `session_id`) for durations. The human's `--task`/`--type`/`--estimate`
+   args complete the record; the script emits the full line itself.
 3. **Rollup** (`scripts/brain-metrics.sh`, run weekly like
    `brain-health.sh`): aggregates all projects' `metrics.jsonl` — 0 LLM
    tokens.

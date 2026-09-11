@@ -2,19 +2,51 @@
 # collect-metrics.sh — per-task metrics collector (0 LLM tokens).
 # Parses a Claude Code session transcript (JSONL) and an optional hook
 # events file (metrics-event.sh output) and emits ONE compact JSON metrics
-# object on stdout, matching METRICS.md's schema minus the human fields
-# (task/type/estimate — the caller, /close, merges those in).
+# object on stdout, matching METRICS.md's schema, including the human fields
+# (task/type/estimate, passed as flags — null when omitted).
 # Missing pieces become null fields: partial data beats no data.
-# Usage: collect-metrics.sh <transcript.jsonl> [events.jsonl]
+# Usage: collect-metrics.sh <transcript.jsonl> [events.jsonl] [--task T] [--type T] [--estimate E]
 set -u
 
-if [ $# -lt 1 ]; then
-  echo "Usage: collect-metrics.sh <transcript.jsonl> [events.jsonl]" >&2
+usage() {
+  echo "Usage: collect-metrics.sh <transcript.jsonl> [events.jsonl] [--task T] [--type T] [--estimate E]" >&2
   exit 2
-fi
+}
+
+[ $# -ge 1 ] || usage
 
 TRANSCRIPT="$1"
-EVENTS="${2:-}"
+shift
+
+EVENTS=""
+if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
+  EVENTS="$1"
+  shift
+fi
+
+TASK="" TASK_SET=0
+TYPE="" TYPE_SET=0
+ESTIMATE="" ESTIMATE_SET=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --task)
+      [ $# -ge 2 ] || usage
+      TASK="$2"; TASK_SET=1; shift 2
+      ;;
+    --type)
+      [ $# -ge 2 ] || usage
+      TYPE="$2"; TYPE_SET=1; shift 2
+      ;;
+    --estimate)
+      [ $# -ge 2 ] || usage
+      ESTIMATE="$2"; ESTIMATE_SET=1; shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
 
 [ -f "$TRANSCRIPT" ] || { echo "ERROR: transcript not found: $TRANSCRIPT" >&2; exit 2; }
 
@@ -87,7 +119,7 @@ def toepoch: sub("\\.[0-9]+Z$"; "Z") | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime;
 | (if ($all_ts | length) > 0 then ($all_ts[0] | toepoch) else null end) as $transcript_start
 | (if ($all_ts | length) > 0 then ($all_ts[-1] | toepoch) else null end) as $transcript_end
 
-| $events as $ev
+| ($events | map(select(.session_id == $session_id))) as $ev
 | (($ev | length) > 0) as $has_events
 | ($ev | map(select(.event=="session-start")) | map(.epoch) | first) as $ev_start
 | ($ev | map(select(.event=="stop")) | map(.epoch) | last) as $ev_stop_last
@@ -105,9 +137,16 @@ def toepoch: sub("\\.[0-9]+Z$"; "Z") | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime;
 
 | (if $plan_min != null and $total_min != null then ($total_min - $plan_min) elif $total_min != null then $total_min else null end) as $exec_min
 
+| (if $task_set == "1" then $task else null end) as $task_val
+| (if $type_set == "1" then $type else null end) as $type_val
+| (if $estimate_set == "1" then $estimate else null end) as $estimate_val
+
 | {
     date: $date,
     session_id: $session_id,
+    task: $task_val,
+    type: $type_val,
+    estimate: $estimate_val,
     duration: { total_min: $total_min, plan_min: $plan_min, exec_min: $exec_min },
     subagents: $subagents,
     tokens: {
@@ -124,6 +163,9 @@ def toepoch: sub("\\.[0-9]+Z$"; "Z") | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime;
 RESULT=$(jq -s \
   --arg session_id "$SESSION_ID" \
   --arg date "$TODAY" \
+  --arg task "$TASK" --arg task_set "$TASK_SET" \
+  --arg type "$TYPE" --arg type_set "$TYPE_SET" \
+  --arg estimate "$ESTIMATE" --arg estimate_set "$ESTIMATE_SET" \
   --slurpfile events "$EVENTS_FILE" \
   "$JQ_FILTER" \
   "$TRANSCRIPT" 2>/dev/null)
