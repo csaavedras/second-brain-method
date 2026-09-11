@@ -7,7 +7,7 @@
 # schema. Malformed lines are skipped and counted, never fatal.
 # Usage: brain-metrics.sh [vault-path]
 set -u
-VAULT="${1:-$HOME/second-brain}"
+VAULT="${1:-@@VAULT@@}"
 [ -d "$VAULT" ] || { echo "ERROR: vault does not exist: $VAULT"; exit 2; }
 
 TMP=$(mktemp -d)

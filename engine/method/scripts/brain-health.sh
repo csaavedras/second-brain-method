@@ -4,7 +4,7 @@
 # and possible secrets (the vault is synced: never credential values).
 # Usage: brain-health.sh [vault-path]
 set -u
-VAULT="${1:-$HOME/second-brain}"
+VAULT="${1:-@@VAULT@@}"
 [ -d "$VAULT" ] || { echo "ERROR: vault does not exist: $VAULT"; exit 2; }
 
 TMP=$(mktemp -d)

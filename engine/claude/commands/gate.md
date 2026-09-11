@@ -28,7 +28,7 @@ State the classification in one line before running anything.
 - **Perf-relevant**: an optimization pass ONLY with evidence — measure
   (profile, EXPLAIN, timing) before claiming a finding. No speculative
   micro-optimization findings; an unmeasured perf opinion is not a finding.
-- **Project checklist**: if `~/second-brain/projects/<project>/review-checklist.md`
+- **Project checklist**: if `@@VAULT@@/projects/<project>/review-checklist.md`
   exists, check the diff against each of its rules — these are distilled
   from real MR comments this project received; they outrank generic taste.
 

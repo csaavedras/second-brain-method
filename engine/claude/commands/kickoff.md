@@ -8,7 +8,7 @@ Kick off this project from the MASTER PROMPT. Arguments: $ARGUMENTS
 **Brief source**, in this order: (a) a file path in the arguments, (b) text
 pasted in this message, (c) if neither → complete it with me **question by
 question** following the structure of
-`~/second-brain/method/PROJECT-BRIEF.template.md` (one section at a time,
+`@@VAULT@@/method/PROJECT-BRIEF.template.md` (one section at a time,
 with examples; the ones I don't know stay "TO DECIDE").
 
 ## Step 1 — Register the project (if needed)

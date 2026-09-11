@@ -8,7 +8,7 @@ This folder is the **source of truth of the method**: the guides (`README.md`,
 `BRAIN.md`, `MODEL-ROUTING.md`, `MULTI-AGENT.md`) explain the *why*; the
 templates (`*.template.md`) bring the *what gets instantiated*.
 
-**Method version: 4.0** — each template and guide carries a
+**Method version: 4.1** — each template and guide carries a
 `<!-- method-version: X.Y -->` comment. When improving a piece, bump the
 version here and in the pieces. To detect outdated copies:
 `grep -r "method-version" <instances>`.
@@ -39,15 +39,15 @@ simple team documentation remains; everything else lives in the vault.
 
 ### Personal global layer (installed ONCE)
 
-| Piece | Role | Template / guide |
+| Piece | Role | Source |
 |---|---|---|
-| `~/.claude/CLAUDE.md` | Always-active rules (thin: the close lives in `/close`); loaded in **all** your projects | `CLAUDE-GLOBAL.template.md` |
-| `~/.claude/commands/start.md` | `/start` — open a session (uses the hub's cached tree) | `START-COMMAND.template.md` |
-| `~/.claude/commands/close.md` | `/close` — close a task/session (only loads tokens when invoked) | `CLOSE-COMMAND.template.md` |
-| `~/.claude/commands/learn.md` | `/learn` — capture study in the vault's `learning/` | `LEARN-COMMAND.template.md` |
-| `~/.claude/commands/new-project.md` | `/new-project` — register a project in one step | `NEW-PROJECT-COMMAND.template.md` |
-| `~/.claude/commands/kickoff.md` | `/kickoff` — master prompt → register + brief + brain + first plan | `KICKOFF-COMMAND.template.md` |
-| `~/.claude/commands/gate.md` | `/gate` — risk-based pre-commit gate (v4): review lenses + fix cycle + READY/NOT-READY | `GATE-COMMAND.template.md` |
+| `~/.claude/CLAUDE.md` | Always-active rules (thin: the close lives in `/close`); loaded in **all** your projects | `engine/claude/CLAUDE.md` |
+| `~/.claude/commands/start.md` | `/start` — open a session (uses the hub's cached tree) | `engine/claude/commands/start.md` |
+| `~/.claude/commands/close.md` | `/close` — close a task/session (only loads tokens when invoked) | `engine/claude/commands/close.md` |
+| `~/.claude/commands/learn.md` | `/learn` — capture study in the vault's `learning/` | `engine/claude/commands/learn.md` |
+| `~/.claude/commands/new-project.md` | `/new-project` — register a project in one step | `engine/claude/commands/new-project.md` |
+| `~/.claude/commands/kickoff.md` | `/kickoff` — master prompt → register + brief + brain + first plan | `engine/claude/commands/kickoff.md` |
+| `~/.claude/commands/gate.md` | `/gate` — risk-based pre-commit gate (v4): review lenses + fix cycle + READY/NOT-READY | `engine/claude/commands/gate.md` |
 | `~/.claude/agents/<name>.md` | Domain subagents (implementer, tester). Sweeps → native **Explore**; review → native `/code-review` | `MULTI-AGENT.md` |
 | `~/.claude/hooks/check-close.sh` + hooks in `~/.claude/settings.json` | Close enforcement (Stop / PreCompact, §6.3) | `scripts/check-close.sh` |
 | `~/.claude/hooks/check-brief.sh` (SubagentStop) | Brief enforcement (v4): blocks subagent reports without verification evidence | `scripts/check-brief.sh` |
@@ -67,15 +67,15 @@ the team's `CLAUDE.md` if it exists). The method touches none of that.
 
 ## 3. Templates and guides in this folder
 
-| Template | Instantiated in |
+| Piece | Instantiated in |
 |---|---|
-| `CLAUDE-GLOBAL.template.md` | `~/.claude/CLAUDE.md` (once) |
-| `START-COMMAND.template.md` | `~/.claude/commands/start.md` (once) |
-| `CLOSE-COMMAND.template.md` | `~/.claude/commands/close.md` (once) |
-| `LEARN-COMMAND.template.md` | `~/.claude/commands/learn.md` (once) |
-| `NEW-PROJECT-COMMAND.template.md` | `~/.claude/commands/new-project.md` (once) |
-| `KICKOFF-COMMAND.template.md` | `~/.claude/commands/kickoff.md` (once) |
-| `GATE-COMMAND.template.md` | `~/.claude/commands/gate.md` (once) |
+| `engine/claude/CLAUDE.md` | `~/.claude/CLAUDE.md` (once, via `./install.sh`) |
+| `engine/claude/commands/start.md` | `~/.claude/commands/start.md` (once, via `./install.sh`) |
+| `engine/claude/commands/close.md` | `~/.claude/commands/close.md` (once, via `./install.sh`) |
+| `engine/claude/commands/learn.md` | `~/.claude/commands/learn.md` (once, via `./install.sh`) |
+| `engine/claude/commands/new-project.md` | `~/.claude/commands/new-project.md` (once, via `./install.sh`) |
+| `engine/claude/commands/kickoff.md` | `~/.claude/commands/kickoff.md` (once, via `./install.sh`) |
+| `engine/claude/commands/gate.md` | `~/.claude/commands/gate.md` (once, via `./install.sh`) |
 | `REVIEW-CHECKLIST.template.md` | `<vault>/projects/<project>/review-checklist.md` (per project — created by `/learn review` on first MR comment) |
 | `PROJECT-BRIEF.template.md` | `<vault>/projects/<project>/brief.md` (per project — the **master prompt**; filled by the human or by `/kickoff` question by question) |
 | `scripts/check-close.sh` | `~/.claude/hooks/check-close.sh` + registration in `~/.claude/settings.json` (once) |
@@ -103,20 +103,17 @@ in. Replace all the `<...>` before considering the method installed.
 ## 4. How to instantiate it
 
 ### Global setup (only once)
-1. Create the vault with the structure from `BRAIN.md`.
-2. `CLAUDE-GLOBAL.template.md` → `~/.claude/CLAUDE.md` (fill in the vault path).
-3. Commands: `START-`, `CLOSE-`, `LEARN-`, `NEW-PROJECT-`, `KICKOFF-` and
-   `GATE-COMMAND.template.md`
-   → `~/.claude/commands/{start,close,learn,new-project,kickoff,gate}.md`.
-4. Define your generic-role subagents (`implementer`, `tester`) in
-   `~/.claude/agents/` (molds in `MULTI-AGENT.md`).
-5. Hooks: `scripts/{check-close,check-brief,metrics-event}.sh` →
-   `~/.claude/hooks/` and register them in `~/.claude/settings.json`:
-   check-close in Stop + PreCompact (§6.3), check-brief in SubagentStop
-   (MULTI-AGENT.md), metrics-event in SessionStart + SubagentStop + Stop
-   (METRICS.md).
-6. Configure the global gitignore for `CLAUDE.local.md`:
-   `git config --global core.excludesFile ~/.gitignore_global` and add the line.
+Run **`./install.sh [VAULT_PATH]`** from the repo root. It installs
+`engine/claude/{CLAUDE.md,commands,agents,hooks}` into `~/.claude` (backing
+up whatever was there), merges the method's hooks into `settings.json`
+without clobbering your config, creates the vault (folders + home + git
+init), and copies `engine/method/` into `<vault>/method/`. It renders the
+`@@VAULT@@` placeholder baked into `CLAUDE.md`, the commands and
+`scripts/{brain-health,brain-metrics}.sh` with the real vault path — you
+don't fill in anything by hand. Configure the global gitignore for
+`CLAUDE.local.md` separately:
+`git config --global core.excludesFile ~/.gitignore_global` and add the line
+(the installer prints this reminder at the end).
 
 ### In each project (new or existing)
 A single step: at the repo root, **`/new-project <name>`** — it creates the

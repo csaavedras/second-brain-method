@@ -25,7 +25,6 @@ done
 CLAUDE_DIR="${CLAUDE_HOME:-$HOME/.claude}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE="$SCRIPT_DIR/engine"
-BAKED_VAULT="second-brain"   # baked-in path sentinel to repoint
 
 # --- requirements -----------------------------------------------------------
 [ "$(uname)" = "Darwin" ] || { echo "✗ This installer is macOS only."; exit 1; }
@@ -125,23 +124,25 @@ Study capture: \`/learn\`. Each project's state: its
 EOF
 fi
 
-# --- 6. repoint the vault path in the config -------------------------------
+# --- 6. render the @@VAULT@@ placeholder with the real vault path ----------
 if [[ "$VAULT_PATH" == "$HOME/"* ]]; then
   DISPLAY="~/${VAULT_PATH#$HOME/}"
   SHELLF="\$HOME/${VAULT_PATH#$HOME/}"
 else
   DISPLAY="$VAULT_PATH"; SHELLF="$VAULT_PATH"
 fi
-if [ "~/$BAKED_VAULT" != "$DISPLAY" ]; then
-  echo "▸ Adjusting the method's paths to the vault ($DISPLAY)"
-  FILES=("$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR"/commands/*.md \
-         "$VAULT_PATH/method/scripts/brain-health.sh" \
-         "$VAULT_PATH/method/scripts/brain-metrics.sh")
-  for f in "${FILES[@]}"; do
-    [ -f "$f" ] || continue
-    sed -i '' "s#~/$BAKED_VAULT#$DISPLAY#g; s#\\\$HOME/$BAKED_VAULT#$SHELLF#g" "$f"
-  done
-fi
+echo "▸ Adjusting the method's paths to the vault ($DISPLAY)"
+MD_FILES=("$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR"/commands/*.md)
+for f in "${MD_FILES[@]}"; do
+  [ -f "$f" ] || continue
+  sed -i '' "s#@@VAULT@@#$DISPLAY#g" "$f"
+done
+SH_FILES=("$VAULT_PATH/method/scripts/brain-health.sh" \
+          "$VAULT_PATH/method/scripts/brain-metrics.sh")
+for f in "${SH_FILES[@]}"; do
+  [ -f "$f" ] || continue
+  sed -i '' "s#@@VAULT@@#$SHELLF#g" "$f"
+done
 
 # --- 7. git init ------------------------------------------------------------
 [ -d "$VAULT_PATH/.git" ] || { git -C "$VAULT_PATH" init -q; echo "▸ git init in the vault"; }
@@ -149,8 +150,9 @@ fi
 # --- 8. verification --------------------------------------------------------
 echo ""
 echo "▸ Verification:"
-if [ "~/$BAKED_VAULT" != "$DISPLAY" ] \
-   && grep -rIl "$BAKED_VAULT" "$CLAUDE_DIR"/CLAUDE.md "$CLAUDE_DIR"/commands/*.md >/dev/null 2>&1; then
+if grep -rIl "@@VAULT@@" "$CLAUDE_DIR"/CLAUDE.md "$CLAUDE_DIR"/commands/*.md \
+     "$VAULT_PATH/method/scripts/brain-health.sh" \
+     "$VAULT_PATH/method/scripts/brain-metrics.sh" >/dev/null 2>&1; then
   echo "  ✗ some paths were not adjusted — check by hand"; exit 1
 fi
 HOOKS_OK=$(jq -r '[.hooks // {} | to_entries[].value[].hooks[]?.command] | join(" ")

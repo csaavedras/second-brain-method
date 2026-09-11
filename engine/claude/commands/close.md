@@ -21,10 +21,10 @@ Run the close per the method. Determine which case applies:
    the collector and append its stdout line (it emits the complete record):
 
    ```
-   ~/second-brain/method/scripts/collect-metrics.sh \
-     <transcript> ~/second-brain/projects/<project>/metrics/events.jsonl \
+   @@VAULT@@/method/scripts/collect-metrics.sh \
+     <transcript> @@VAULT@@/projects/<project>/metrics/events.jsonl \
      --task "<short title>" --type <type> [--estimate "<estimate>"] \
-     >> ~/second-brain/projects/<project>/metrics/metrics.jsonl
+     >> @@VAULT@@/projects/<project>/metrics/metrics.jsonl
    ```
 
    `<transcript>` is this session's JSONL: the most recently modified file
@@ -60,9 +60,9 @@ Acid test: a new session must resume without asking anything.
 
 ## Brain backup (last step, ALWAYS)
 
-The vault (`~/second-brain`) is a git repo:
+The vault (`@@VAULT@@`) is a git repo:
 
-1. `git -C ~/second-brain status --porcelain` — if clean, done.
+1. `git -C @@VAULT@@ status --porcelain` — if clean, done.
 2. If there are changes: show me the summary and **with my OK** run add +
    commit: `chore(brain): YYYY-MM-DD close <project|study>` — a single commit
    with everything from the session.
