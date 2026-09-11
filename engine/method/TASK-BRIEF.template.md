@@ -5,7 +5,7 @@
   Quality rule: the subagent should NOT need anything outside this brief.
   See MULTI-AGENT.md and MODEL-ROUTING.md.
 -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # TASK BRIEF — <short task title>
 
@@ -27,21 +27,32 @@
 - Read `<docs/0X-...>.md` and follow that pattern for <...>
 
 ## Skills to use
-<!-- E.g. frontend-design, test-driven-development. Omit if not applicable. -->
-- <...>
+<!-- 0-2 skills picked from the registry (SKILLS-REGISTRY.md), each with one
+     line of why. Omit if none applies — most tasks need none. -->
+- <skill> — <why it applies to THIS task>
 
-## Definition of done
-<!-- Verification commands that must pass green: -->
+## Acceptance criteria
+<!-- Two blocks. The subagent is NOT done until every item has evidence. -->
+Commands (must pass green):
 - `<test/build/lint command>` green
+
+Observable behavior:
+<!-- Concrete, checkable statements — "returns 404 when X", "logs the error
+     with context", "the flag defaults to off". Not vibes. -->
+- <...>
 
 ## Constraints (method-fixed — do not edit)
 - Work ONLY within this brief's scope; if something is missing, report it as
   a blocker, don't resolve it on your own.
 - Don't run git commands. Don't modify CONTEXT.md or state files.
 - Don't make design decisions: doubts come back in the report.
+- Invoke only the skills named above; don't pick skills on your own.
 
 ## Report format (mandatory, max ~30 lines)
-1. Files touched and what changed in each (1 line per file)
-2. Verification: command run + literal result
-3. Findings (if any)
-4. Doubts / blockers (if any)
+1. Detected stack/framework + conventions followed (1-2 lines)
+2. Files touched and what changed in each (1 line per file)
+3. Verification — one line per command, EXACTLY this shape (the harness
+   checks it): ``Verification: `<command>` → <literal result>``
+4. Criteria evidence: each acceptance criterion → its evidence (1 line each)
+5. Findings (if any)
+6. Doubts / blockers (if any)

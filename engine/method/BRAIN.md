@@ -1,5 +1,5 @@
 <!-- Method guide — lives with the method, not copied into projects. -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # BRAIN.md — The persistent brain (Obsidian vault)
 
@@ -27,6 +27,11 @@ or MCP (Dataview/Bases are optional, for the human's queries).
     sessions/               # closed history: YYYY-MM-DD.md
     decisions/              # the project's design decisions
     graph/                  # generated code graph (AST, see plan v3)
+    review-checklist.md     # rules distilled from real MR comments (v4:
+                            #   written by /learn review, read by /gate)
+    metrics/                # telemetry (v4, see METRICS.md): events.jsonl
+                            #   (hook timestamps) + metrics.jsonl (1 line
+                            #   per closed task) — data files, not notes
   patterns/                 # recipes/patterns born from projects
   learning/                 # study: concepts, resources, TILs (see below)
     <topic>/                # concepts and resources of the topic
@@ -41,7 +46,7 @@ Every vault note opens with:
 ```yaml
 ---
 type: hub | context | plan | session | decision | pattern | brief |
-      concept | resource | til | moc
+      concept | resource | til | moc | checklist
 project: <project>           # omit in cross-cutting patterns and learning
 date: YYYY-MM-DD
 status: active | current | resolved | archived   # per type
@@ -217,6 +222,21 @@ Besides updating CONTEXT.md:
 On completing a phase, or when CONTEXT.md exceeds ~150 lines: the closed
 history moves down to a `sessions/` note and CONTEXT.md keeps only what's live
 (current state, next session, todo list, current decisions, open questions).
+
+## Native Claude Code memory vs. the vault (v4)
+
+Claude Code ships its own persistent per-project memory (a `memory/`
+directory of fact files plus a `MEMORY.md` index). The method predates it
+and does **not** migrate to it — one brain, not two:
+
+- **The vault is the source of truth for state and knowledge**: context,
+  plans, decisions, sessions, patterns, learning, metrics. Everything
+  `/start` reads and `/close` writes lives here, browsable in Obsidian.
+- **Native memory is for micro-preferences only**: small facts about how you
+  like the agent to work (tone, formatting quirks) that need no graph, no
+  history and no human browsing. Nothing that `/close` would persist belongs
+  there.
+- If a fact shows up in both, the vault wins; delete the native copy.
 
 ## Security
 

@@ -1,5 +1,5 @@
 <!-- Method guide — lives in this folder, not copied into projects. -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # MODEL-ROUTING.md — Choosing the model by task type
 
@@ -54,6 +54,16 @@ the equivalences column is updated when the offering changes:
 - **In the subagent's definition**: the `model:` frontmatter of
   `~/.claude/agents/<name>.md` — each subagent type already ships with its
   default level (see MULTI-AGENT.md).
+
+Two cases that sit outside the routing table (v4):
+
+- **Fork** (subagent inheriting the parent's context, MULTI-AGENT.md): it
+  always runs the **parent's model** — a model override is ignored. Never
+  pick a fork to save tokens; pick it only when the task needs the session's
+  history.
+- **Fast mode** (`/fast`): same top model with faster output — it is NOT a
+  cheaper level and doesn't replace routing. Like model/effort, toggle it at
+  the `/close`→`/start` break, not mid-session (prefix-cache hygiene below).
 
 ## Prefix-cache hygiene (v3.2)
 

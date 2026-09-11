@@ -4,7 +4,7 @@
   every message): the command only loads tokens when invoked.
   Enforcement: Stop/PreCompact hooks (scripts/check-close.sh, README §6.3).
 -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # /close — task or session close
 
@@ -21,16 +21,36 @@ Run the close per the method. Determine which case applies:
 
 1. **Verify before marking `[x]`**: run the appropriate build/test/lint and
    record in CONTEXT.md the command and its result. Without green, the task
-   stays `[~]`.
-2. Update the vault's CONTEXT.md: task, new decisions, open questions,
+   stays `[~]`. For non-trivial changes with a runtime surface, also
+   exercise the flow end-to-end (native `/verify` skill) — green tests
+   alone let through exactly the bugs that later show up as MR comments.
+2. **Gate**: if the task produced code destined for a commit/MR, `/gate`
+   must have run on the integrated diff with verdict **READY**. NOT-READY
+   → the close stops here; the open findings decide the next step.
+3. Update the vault's CONTEXT.md: task, new decisions, open questions,
    "Current state" with ISO date `YYYY-MM-DD`.
-3. Record cross-cutting things in the brain: non-obvious decision →
+4. **Metrics**: ask me two things — task `type` (feat / bug / refactor /
+   spike) and optional `estimate` (points or time I had assigned) — then run
+   the collector and append its stdout line (it emits the complete record):
+
+   ```
+   <vault-path>/method/scripts/collect-metrics.sh \
+     <transcript> <vault-path>/projects/<project>/metrics/events.jsonl \
+     --task "<short title>" --type <type> [--estimate "<estimate>"] \
+     >> <vault-path>/projects/<project>/metrics/metrics.jsonl
+   ```
+
+   `<transcript>` is this session's JSONL: the most recently modified file
+   in `~/.claude/projects/<cwd-with-slashes-as-dashes>/*.jsonl`. Schema in
+   `method/METRICS.md`. If the script fails, report it and continue: the
+   close never blocks on telemetry.
+5. Record cross-cutting things in the brain: non-obvious decision →
    `decisions/` (+ link in the hub); reusable learning → `patterns/` or
    `learning/`.
-4. Leave the commit message ready: Conventional Commits with scope, English,
+6. Leave the commit message ready: Conventional Commits with scope, English,
    one line, ≤ 100 characters.
 
-Do not move to the next task until the 4 points are done.
+Do not move to the next task until the 6 points are done.
 
 ## B. Closing a session with a task half-done
 

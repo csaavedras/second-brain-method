@@ -3,7 +3,7 @@
   fill in <vault-path> and <method-path>.
   Study capture in the vault's learning/ layer (BRAIN.md).
 -->
-<!-- method-version: 3.2 -->
+<!-- method-version: 4.0 -->
 
 # /learn — learning capture
 
@@ -20,6 +20,17 @@ $ARGUMENTS
 
 If there are no arguments, extract from the current conversation what was
 learned that has value beyond today.
+
+**Special mode — `/learn review <MR comment>`**: the argument is a review
+comment a real MR received. Don't file it under `learning/`; instead:
+distill it into ONE checkable rule (what to check in a diff, in one line —
+not the anecdote), and append it to the current project's
+`<vault-path>/projects/<project>/review-checklist.md` (create it from the
+method's REVIEW-CHECKLIST.template.md if absent), with the origin comment
+and date. Deduplicate: if an existing rule already covers it, sharpen that
+rule instead of adding a twin. This file is the ONE exception to the
+"don't touch projects/" rule below — it feeds `/gate`. Report the rule
+added/updated and stop (skip the steps below).
 
 1. **Classify** per the method's BRAIN.md (`<method-path>`):
    - `concept` — durable idea → `learning/<topic>/<slug>.md`
@@ -40,5 +51,6 @@ learned that has value beyond today.
    created a MOC.
 
 Don't touch `projects/` or any CONTEXT.md: this is knowledge capture, not
-project state.
+project state. (Sole exception: `review-checklist.md` in the `review` mode
+above.)
 ````
