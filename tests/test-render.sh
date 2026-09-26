@@ -228,7 +228,9 @@ else
 fi
 
 # =============================================================================
-# 8. Every @@MSG_*@@ placeholder used in engine/**/*.sh has a key, and every
+# 8. Every @@MSG_*@@ placeholder used in engine/**/*.sh has a key, every bare
+#    MSG_SBM_* key referenced in ./sbm has a key too (sbm looks these up as
+#    bare keys, not @@...@@-wrapped, and isn't under engine/), and every
 #    MSG_* key defined in messages.env is used somewhere (no dead keys).
 # =============================================================================
 REAL_MENV="$REPO_ROOT/engine/i18n/en/messages.env"
@@ -236,14 +238,16 @@ USED_KEYS="$TDIR/used_keys.txt"
 DEFINED_KEYS="$TDIR/defined_keys.txt"
 find "$REPO_ROOT/engine" -type f -name '*.sh' -print0 2>/dev/null \
   | xargs -0 grep -ohE '@@MSG_[A-Z0-9_]+@@' 2>/dev/null \
-  | sed 's/@@//g' | sort -u > "$USED_KEYS"
+  | sed 's/@@//g' > "$USED_KEYS"
+grep -ohE 'MSG_SBM_[A-Z0-9_]+' "$REPO_ROOT/sbm" 2>/dev/null >> "$USED_KEYS"
+sort -u -o "$USED_KEYS" "$USED_KEYS"
 grep -oE '^MSG_[A-Z0-9_]+' "$REAL_MENV" | sort -u > "$DEFINED_KEYS"
 
 MISSING_KEYS="$(comm -23 "$USED_KEYS" "$DEFINED_KEYS")"
 DEAD_KEYS="$(comm -13 "$USED_KEYS" "$DEFINED_KEYS")"
 
 if [ -z "$MISSING_KEYS" ] && [ -z "$DEAD_KEYS" ]; then
-  pass "8. every @@MSG_*@@ used in engine/**/*.sh has a key, no dead keys in messages.env"
+  pass "8. every @@MSG_*@@ used in engine/**/*.sh and every bare MSG_SBM_* used in sbm has a key, no dead keys in messages.env"
 else
   fail "8. placeholder/key mismatch — used-without-key: [$MISSING_KEYS] dead-keys: [$DEAD_KEYS]"
 fi
@@ -329,7 +333,7 @@ VAULT_ARG="$IT$VAULT_SUFFIX"
 INSTALL_OUT="$TDIR/install_out.txt"
 (
   cd "$REPO_ROOT" || exit 1
-  CLAUDE_HOME="$IT/c" HOME="$IT/home" ./install.sh "$VAULT_ARG"
+  CLAUDE_HOME="$IT/c" HOME="$IT/home" ./install.sh --yes --vault "$VAULT_ARG"
 ) >"$INSTALL_OUT" 2>&1
 RC12=$?
 
@@ -340,8 +344,8 @@ if [ "$RC12" -eq 0 ]; then
   fi
 fi
 
-if [ "$RC12" -eq 0 ] && grep -qF 'ok —' "$INSTALL_OUT" && [ -z "$LEFTOVER" ]; then
-  pass "12. install.sh smoke test with hostile vault path: exit 0, 'ok —', no leftover placeholders"
+if [ "$RC12" -eq 0 ] && grep -qF '✓ Method installed' "$INSTALL_OUT" && [ -z "$LEFTOVER" ]; then
+  pass "12. install.sh smoke test with hostile vault path: exit 0, install-done message, no leftover placeholders"
 else
   fail "12. install smoke failed — rc=$RC12 leftover=[$LEFTOVER] output_tail=[$(tail -5 "$INSTALL_OUT")]"
 fi

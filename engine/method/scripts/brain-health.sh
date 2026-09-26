@@ -11,11 +11,16 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # method/ (the method lives in the vault but is not part of the note graph)
-# and .obsidian/.trash are excluded from the check.
-find "$VAULT" -name '*.md' -type f \
-  -not -path "$VAULT/method/*" \
-  -not -path "$VAULT/.obsidian/*" \
-  -not -path "$VAULT/.trash/*" | sort > "$TMP/files"
+# and .obsidian/.trash are excluded from the check. Filtered with a plain
+# [[ == pattern ]] match (not `find -not -path`): -path treats $VAULT's own
+# content as a glob pattern, so a vault path containing \, [ or * would
+# silently fail to exclude method/. Quoting "$VAULT" inside [[ ... ==
+# pattern ]] makes bash treat its content literally even with glob
+# metacharacters in it; only the unquoted trailing `*` acts as a wildcard.
+find "$VAULT" -name '*.md' -type f 2>/dev/null | while IFS= read -r f; do
+  [[ "$f" == "$VAULT"/method/* || "$f" == "$VAULT"/.obsidian/* || "$f" == "$VAULT"/.trash/* ]] && continue
+  printf '%s\n' "$f"
+done | sort > "$TMP/files"
 sed -E 's|.*/||; s|\.md$||' "$TMP/files" | sort -u > "$TMP/basenames"
 TOTAL=$(wc -l < "$TMP/files" | tr -d ' ')
 

@@ -1,0 +1,24 @@
+name: Method compatibility
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      # jq, git and perl already ship on macos-latest runners — no install
+      # step needed for those.
+      - name: render/i18n behavioral tests
+        run: bash tests/test-render.sh
+      - name: i18n key-set parity
+        run: bash tests/check-i18n.sh
+      - name: sbm CLI (install/update/status) behavioral tests
+        run: bash tests/test-sbm.sh
+      # Informational: on a plain checkout with no local changes this
+      # naturally passes; it exists to catch whitespace-dirty diffs
+      # introduced by a PR (e.g. a step above rewriting a tracked file).
+      - name: Whitespace
+        run: git diff --check
