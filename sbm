@@ -326,6 +326,12 @@ cmd_status() {
   inst_lang="$(config_get lang)"
   inst_vault="$(config_get vault)"
 
+  # Speak the installed language if this checkout has it; else stay English
+  # (never fail status over a missing/renamed language).
+  if [ -f "$ENGINE/i18n/$inst_lang/messages.env" ]; then
+    MESSAGES_ENV="$ENGINE/i18n/$inst_lang/messages.env"
+  fi
+
   msg MSG_SBM_STATUS_HEADER
   msg MSG_SBM_STATUS_VERSION_LINE "$inst_version" "$inst_lang" "$inst_vault"
   if [ "$inst_version" != "$VERSION" ]; then

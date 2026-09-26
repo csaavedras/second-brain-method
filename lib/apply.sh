@@ -47,6 +47,18 @@
 # since part of the file's content is legitimately the user's own (outside
 # the managed block) and a whole-file sha wouldn't tell "just the block
 # changed" apart from "the user edited their own part".
+#
+# Design decision — per-language .md overlay (F3a): for the four
+# translatable families (claude/CLAUDE.md, claude/commands/*.md,
+# claude/agents/*.md, method/*.md) the SOURCE file installed is
+# engine/i18n/<lang>/<relpath> when that overlay exists, else it falls
+# back to the English engine/<relpath>. Iteration always walks the
+# English engine/ tree (it's the source of truth for the file SET — an
+# extra file that only exists under i18n/<lang>/ is never installed).
+# `.sh` files (hooks, method/scripts) and settings.json are NEVER
+# overlaid this way: their text already comes from @@MSG_*@@ tokens
+# rendered from engine/i18n/<lang>/messages.env, so translating
+# messages.env is enough to translate them — see _apply_src below.
 
 apply() {
   local lang="$1" claude_dir="$2" vault="$3" mode="${4:-}"
@@ -89,9 +101,11 @@ apply() {
   backup_root="$claude_dir/.second-brain/backups/$(utc_timestamp)"
 
   # === 1. CLAUDE.md ==========================================================
+  local src_claudemd
+  src_claudemd="$(_apply_src "$engine" "$lang" "claude/CLAUDE.md")"
   local rendered_claudemd
   rendered_claudemd="$(mktemp)" || { echo "apply: mktemp failed" >&2; return 1; }
-  if ! render_file "$engine/claude/CLAUDE.md" "$rendered_claudemd" "$menv" "$vdisplay" "$vshell"; then
+  if ! render_file "$src_claudemd" "$rendered_claudemd" "$menv" "$vdisplay" "$vshell"; then
     rm -f "$rendered_claudemd"
     echo "apply: failed to render CLAUDE.md" >&2
     return 1
@@ -162,12 +176,13 @@ apply() {
   local current_dests
   current_dests="$(mktemp)" || { echo "apply: mktemp failed" >&2; return 1; }
 
-  local f name dest
+  local f name dest src
   for f in "$engine"/claude/commands/*.md; do
     [ -f "$f" ] || continue
     name="$(basename "$f")"
     dest="$claude_dir/commands/$name"
-    _apply_process_file "$f" "$dest" "$menv" "$vdisplay" "$vshell" "$backup_root" "commands/$name" "$take_new" 0 \
+    src="$(_apply_src "$engine" "$lang" "claude/commands/$name")"
+    _apply_process_file "$src" "$dest" "$menv" "$vdisplay" "$vshell" "$backup_root" "commands/$name" "$take_new" 0 \
       || { rm -f "$current_dests"; return 1; }
     printf '%s\n' "$dest" >> "$current_dests"
   done
@@ -176,7 +191,8 @@ apply() {
     [ -f "$f" ] || continue
     name="$(basename "$f")"
     dest="$claude_dir/agents/$name"
-    _apply_process_file "$f" "$dest" "$menv" "$vdisplay" "$vshell" "$backup_root" "agents/$name" "$take_new" 0 \
+    src="$(_apply_src "$engine" "$lang" "claude/agents/$name")"
+    _apply_process_file "$src" "$dest" "$menv" "$vdisplay" "$vshell" "$backup_root" "agents/$name" "$take_new" 0 \
       || { rm -f "$current_dests"; return 1; }
     printf '%s\n' "$dest" >> "$current_dests"
   done
@@ -194,7 +210,8 @@ apply() {
     [ -f "$f" ] || continue
     name="$(basename "$f")"
     dest="$vault/method/$name"
-    _apply_process_file "$f" "$dest" "$menv" "$vdisplay" "$vshell" "$backup_root" "method/$name" "$take_new" 0 \
+    src="$(_apply_src "$engine" "$lang" "method/$name")"
+    _apply_process_file "$src" "$dest" "$menv" "$vdisplay" "$vshell" "$backup_root" "method/$name" "$take_new" 0 \
       || { rm -f "$current_dests"; return 1; }
     printf '%s\n' "$dest" >> "$current_dests"
   done
@@ -238,6 +255,21 @@ apply() {
 
   rm -f "$current_dests"
   return 0
+}
+
+# _apply_src <engine> <lang> <relpath> — echoes the source path to install
+# for a translatable .md file: engine/i18n/<lang>/<relpath> if that overlay
+# exists as a regular file, else engine/<relpath> (English fallback). Only
+# call this for the four translatable families listed in the header
+# comment above — never for .sh files or settings.json.
+_apply_src() {
+  local engine="$1" lang="$2" relpath="$3" overlay
+  overlay="$engine/i18n/$lang/$relpath"
+  if [ -f "$overlay" ]; then
+    printf '%s\n' "$overlay"
+  else
+    printf '%s\n' "$engine/$relpath"
+  fi
 }
 
 # _apply_process_file <src> <dest> <menv> <vdisplay> <vshell> <backup_root>

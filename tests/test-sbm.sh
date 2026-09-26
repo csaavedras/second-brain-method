@@ -15,6 +15,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SBM="$REPO_ROOT/sbm"
 
+# shellcheck source=../lib/render.sh
+. "$REPO_ROOT/lib/render.sh"
+
 PASS_COUNT=0
 FAIL_COUNT=0
 
@@ -75,17 +78,19 @@ LEFTOVER1="$(grep -rlE '@@[A-Z_]+@@' "$MC" "$MVAULT" 2>/dev/null)"
 
 [ "$C1_OK" -eq 1 ] && pass "1. fresh install en: exit 0, CLAUDE.md block, vault files, .git, config.json, no leftover placeholders, no nested method/method"
 
-# 1b. fresh install --lang es (no engine/i18n/es/ yet) -> exit 1, names en available
+# 1b. fresh install --lang zz (never shipped, a non-existent language by
+#     construction, unlike "es" which may land for real later) -> exit 1,
+#     names en available
 T1B="$TDIR/case1b"
 C1B="$T1B/c"
 H1B="$T1B/home"
 mkdir -p "$C1B" "$H1B"
-OUT1B="$(CLAUDE_HOME="$C1B" HOME="$H1B" "$SBM" install --yes --lang es 2>&1)"
+OUT1B="$(CLAUDE_HOME="$C1B" HOME="$H1B" "$SBM" install --yes --lang zz 2>&1)"
 RC1B=$?
 if [ "$RC1B" -ne 0 ] && printf '%s' "$OUT1B" | grep -q 'Available language(s): en' && ! printf '%s' "$OUT1B" | grep -qi 'no such file or directory'; then
-  pass "1b. install --lang es (unavailable) -> exit 1, names en as available, not a raw file-not-found"
+  pass "1b. install --lang zz (unavailable) -> exit 1, names en as available, not a raw file-not-found"
 else
-  fail "1b. install --lang es handling wrong — rc=$RC1B out=[$OUT1B]"
+  fail "1b. install --lang zz handling wrong — rc=$RC1B out=[$OUT1B]"
 fi
 
 # =============================================================================
@@ -224,14 +229,14 @@ else
 fi
 
 # =============================================================================
-# Case 6 — update --lang es (not available yet) -> exit 1, not a crash
+# Case 6 — update --lang zz (non-existent language) -> exit 1, not a crash
 # =============================================================================
-OUT6="$(CLAUDE_HOME="$MC" HOME="$MH" "$SBM" update --no-pull --lang es 2>&1)"
+OUT6="$(CLAUDE_HOME="$MC" HOME="$MH" "$SBM" update --no-pull --lang zz 2>&1)"
 RC6=$?
 if [ "$RC6" -eq 1 ] && printf '%s' "$OUT6" | grep -q 'Available language(s): en'; then
-  pass "6. update --no-pull --lang es -> exit 1, same 'not available yet' message, not a crash"
+  pass "6. update --no-pull --lang zz -> exit 1, same 'not available yet' message, not a crash"
 else
-  fail "6. update --lang es handling wrong — rc=$RC6 out=[$OUT6]"
+  fail "6. update --lang zz handling wrong — rc=$RC6 out=[$OUT6]"
 fi
 
 # =============================================================================
@@ -443,6 +448,252 @@ if bash "$SCRIPT_DIR/check-i18n.sh" >"$TDIR/i18n_out.txt" 2>&1; then
 else
   fail "10b. tests/check-i18n.sh failed:$(cat "$TDIR/i18n_out.txt")"
 fi
+
+# =============================================================================
+# Case 11 — per-language .md overlay in apply() (F3a), synthetic language "xx"
+# =============================================================================
+T11="$TDIR/case11"
+mkdir -p "$T11"
+
+# --- setup: a repo copy with a PARTIAL xx overlay -------------------------
+# messages.env: identical to en/ except ONE value (rendered into an
+# installed hook, MSG_CLOSE_STOP_BLOCK -> claude/hooks/check-close.sh)
+# carries a marker. claude/commands/start.md: overlaid (marker comment).
+# claude/commands/close.md: deliberately NOT overlaid, to exercise the
+# English fallback.
+REPO11="$T11/repo-xx-partial"
+make_repo_copy "$REPO11"
+mkdir -p "$REPO11/engine/i18n/xx/claude/commands"
+sed 's/^MSG_CLOSE_STOP_BLOCK=/MSG_CLOSE_STOP_BLOCK=XXMARK /' \
+  "$REPO11/engine/i18n/en/messages.env" > "$REPO11/engine/i18n/xx/messages.env"
+cp "$REPO11/engine/claude/commands/start.md" "$REPO11/engine/i18n/xx/claude/commands/start.md"
+printf '\n<!-- XX-OVERLAY -->\n' >> "$REPO11/engine/i18n/xx/claude/commands/start.md"
+
+C11="$T11/c"
+H11="$T11/home"
+V11="$T11/vault11"
+mkdir -p "$C11" "$H11"
+
+OUT11A="$(CLAUDE_HOME="$C11" HOME="$H11" "$REPO11/sbm" install --yes --lang xx --vault "$V11" 2>&1)"
+RC11A=$?
+
+C11A_OK=1
+[ "$RC11A" -eq 0 ] || { C11A_OK=0; fail "11a. install --lang xx exit != 0 — out=[$OUT11A]"; }
+grep -qF 'XX-OVERLAY' "$C11/commands/start.md" 2>/dev/null || { C11A_OK=0; fail "11a. installed commands/start.md missing the xx overlay marker"; }
+if grep -qF 'XX-OVERLAY' "$C11/commands/close.md" 2>/dev/null; then
+  C11A_OK=0
+  fail "11a. commands/close.md unexpectedly has the xx overlay marker (should fall back to English)"
+fi
+
+# close.md has no xx pair -> English-fallback render. Reproduce that render
+# directly with render_file (sourced above) and diff byte-for-byte.
+if [[ "$V11" == "$H11/"* ]]; then
+  VD11="~/${V11#"$H11"/}"
+  VS11="\$HOME/${V11#"$H11"/}"
+else
+  VD11="$V11"
+  VS11="$V11"
+fi
+EXPECTED_CLOSE="$T11/expected-close.md"
+render_file "$REPO11/engine/claude/commands/close.md" "$EXPECTED_CLOSE" "$REPO11/engine/i18n/en/messages.env" "$VD11" "$VS11" >/dev/null 2>&1
+if ! cmp -s "$EXPECTED_CLOSE" "$C11/commands/close.md" 2>/dev/null; then
+  C11A_OK=0
+  fail "11a. installed commands/close.md doesn't match the plain English render (fallback broken)"
+fi
+
+grep -qF 'XXMARK' "$C11/hooks/check-close.sh" 2>/dev/null || { C11A_OK=0; fail "11a. installed hooks/check-close.sh missing XXMARK (messages.env lang override not applied)"; }
+
+LEFTOVER11A="$(grep -rlE '@@[A-Z_]+@@' "$C11" "$V11" 2>/dev/null)"
+[ -z "$LEFTOVER11A" ] || { C11A_OK=0; fail "11a. leftover @@..@@ placeholders: $LEFTOVER11A"; }
+
+CFG11_LANG="$(jq -r '.lang' "$C11/.second-brain/config.json" 2>/dev/null)"
+[ "$CFG11_LANG" = "xx" ] || { C11A_OK=0; fail "11a. config.json lang != xx — got [$CFG11_LANG]"; }
+
+OUT11A_STATUS="$(CLAUDE_HOME="$C11" HOME="$H11" "$REPO11/sbm" status 2>&1)"
+printf '%s' "$OUT11A_STATUS" | grep -q 'xx' || { C11A_OK=0; fail "11a. status output doesn't mention xx — out=[$OUT11A_STATUS]"; }
+
+[ "$C11A_OK" -eq 1 ] && pass "11a. install --lang xx: exit 0, overlay used for start.md, English fallback for close.md, messages.env override reaches an installed hook, no leftover placeholders, config+status show xx"
+
+# --- 11b: switching to --lang en goes through the normal manifest path ---
+OUT11B="$(CLAUDE_HOME="$C11" HOME="$H11" "$REPO11/sbm" update --no-pull --lang en 2>&1)"
+RC11B=$?
+C11B_OK=1
+[ "$RC11B" -eq 0 ] || { C11B_OK=0; fail "11b. update --no-pull --lang en exit != 0 — out=[$OUT11B]"; }
+printf '%s' "$OUT11B" | grep -qE 'conflict=0 ' || { C11B_OK=0; fail "11b. summary doesn't show conflict=0 — out=[$OUT11B]"; }
+if grep -qF 'XX-OVERLAY' "$C11/commands/start.md" 2>/dev/null; then
+  C11B_OK=0
+  fail "11b. commands/start.md still has the xx marker after switching to lang en"
+fi
+
+[ "$C11B_OK" -eq 1 ] && pass "11b. update --no-pull --lang en (nothing hand-touched): exit 0, start.md back to the English render (no marker), conflict=0"
+
+# --- 11c: hand-edit + switch back to --lang xx -> conflict, .new carries
+#          the overlay, dest left byte-unchanged ---------------------------
+START_DEST="$C11/commands/start.md"
+printf '\n<!-- hand-edited by test case 11c -->\n' >> "$START_DEST"
+START_BEFORE="$(cat "$START_DEST")"
+
+OUT11C="$(CLAUDE_HOME="$C11" HOME="$H11" "$REPO11/sbm" update --no-pull --lang xx 2>&1)"
+RC11C=$?
+START_AFTER="$([ -f "$START_DEST" ] && cat "$START_DEST")"
+
+C11C_OK=1
+[ "$RC11C" -eq 0 ] || { C11C_OK=0; fail "11c. update --no-pull --lang xx after hand-edit exit != 0 — out=[$OUT11C]"; }
+printf '%s' "$OUT11C" | grep -qE 'conflict=1 ' || { C11C_OK=0; fail "11c. summary doesn't show conflict=1 — out=[$OUT11C]"; }
+[ -f "$START_DEST.new" ] || { C11C_OK=0; fail "11c. commands/start.md.new not created"; }
+grep -qF 'XX-OVERLAY' "$START_DEST.new" 2>/dev/null || { C11C_OK=0; fail "11c. commands/start.md.new missing the xx overlay marker"; }
+[ "$START_BEFORE" = "$START_AFTER" ] || { C11C_OK=0; fail "11c. commands/start.md was modified, expected byte-unchanged"; }
+
+[ "$C11C_OK" -eq 1 ] && pass "11c. hand-edit + update --no-pull --lang xx -> conflict=1, start.md.new carries the xx overlay marker, start.md byte-unchanged"
+
+# --- 11d: check-i18n.sh checks 3-6 against a FULL synthetic xx overlay ----
+build_full_xx_overlay() {
+  local repo="$1"
+  mkdir -p "$repo/engine/i18n/xx/claude/commands" "$repo/engine/i18n/xx/claude/agents" "$repo/engine/i18n/xx/method"
+  cp "$repo/engine/claude/CLAUDE.md" "$repo/engine/i18n/xx/claude/CLAUDE.md"
+  cp "$repo"/engine/claude/commands/*.md "$repo/engine/i18n/xx/claude/commands/"
+  cp "$repo"/engine/claude/agents/*.md "$repo/engine/i18n/xx/claude/agents/"
+  cp "$repo"/engine/method/*.md "$repo/engine/i18n/xx/method/"
+}
+
+REPO11D="$T11/repo-xx-full"
+make_repo_copy "$REPO11D"
+build_full_xx_overlay "$REPO11D"
+
+OUT11D_BASE="$(bash "$SCRIPT_DIR/check-i18n.sh" "$REPO11D" 2>&1)"
+RC11D_BASE=$?
+if [ "$RC11D_BASE" -eq 0 ]; then
+  pass "11d. check-i18n.sh against a full synthetic xx overlay (exact mirror) passes"
+else
+  fail "11d. check-i18n.sh against a full synthetic xx overlay unexpectedly failed — out=[$OUT11D_BASE]"
+fi
+
+# orphan: an i18n/xx file with no English counterpart -> check 6 fails, names it
+REPO11D_ORPHAN="$T11/repo-xx-orphan"
+cp -R "$REPO11D" "$REPO11D_ORPHAN"
+printf '# bogus\n' > "$REPO11D_ORPHAN/engine/i18n/xx/claude/commands/bogus.md"
+OUT11D_ORPHAN="$(bash "$SCRIPT_DIR/check-i18n.sh" "$REPO11D_ORPHAN" 2>&1)"
+RC11D_ORPHAN=$?
+if [ "$RC11D_ORPHAN" -ne 0 ] && printf '%s' "$OUT11D_ORPHAN" | grep -qF 'bogus.md'; then
+  pass "11d. orphan i18n/xx file (no English counterpart) -> check-i18n.sh fails, names it"
+else
+  fail "11d. orphan-file check didn't fail as expected — out=[$OUT11D_ORPHAN]"
+fi
+
+# missing pair: removing one pair -> check 3 fails, names lang+file
+REPO11D_MISSING="$T11/repo-xx-missing"
+cp -R "$REPO11D" "$REPO11D_MISSING"
+rm -f "$REPO11D_MISSING/engine/i18n/xx/method/BRAIN.md"
+OUT11D_MISSING="$(bash "$SCRIPT_DIR/check-i18n.sh" "$REPO11D_MISSING" 2>&1)"
+RC11D_MISSING=$?
+if [ "$RC11D_MISSING" -ne 0 ] && printf '%s' "$OUT11D_MISSING" | grep -qF 'FAIL: 3.' && printf '%s' "$OUT11D_MISSING" | grep -qF 'method/BRAIN.md'; then
+  pass "11d. removing an i18n/xx pair -> check-i18n.sh fails check 3, names lang+file"
+else
+  fail "11d. missing-pair check didn't fail as expected — out=[$OUT11D_MISSING]"
+fi
+
+# stale method-version: changing it in a pair -> check 4 fails, names lang+file
+REPO11D_VER="$T11/repo-xx-badversion"
+cp -R "$REPO11D" "$REPO11D_VER"
+EN_BRAIN_VERSION="$(grep -oE 'method-version:[[:space:]]*[0-9]+\.[0-9]+' "$REPO11D_VER/engine/method/BRAIN.md" | head -1 | grep -oE '[0-9]+\.[0-9]+')"
+NEW_BRAIN_VERSION="${EN_BRAIN_VERSION}9"
+perl -pi -e "s/method-version: \Q$EN_BRAIN_VERSION\E/method-version: $NEW_BRAIN_VERSION/" "$REPO11D_VER/engine/i18n/xx/method/BRAIN.md"
+OUT11D_VER="$(bash "$SCRIPT_DIR/check-i18n.sh" "$REPO11D_VER" 2>&1)"
+RC11D_VER=$?
+if [ "$RC11D_VER" -ne 0 ] && printf '%s' "$OUT11D_VER" | grep -qF 'FAIL: 4.' && printf '%s' "$OUT11D_VER" | grep -qF 'method/BRAIN.md'; then
+  pass "11d. stale method-version in an i18n/xx pair -> check-i18n.sh fails check 4, names lang+file"
+else
+  fail "11d. method-version check didn't fail as expected — out=[$OUT11D_VER]"
+fi
+
+# dropped @@VAULT@@ token: removing it from a pair -> check 5 fails, names lang+file
+REPO11D_TOKEN="$T11/repo-xx-badtoken"
+cp -R "$REPO11D" "$REPO11D_TOKEN"
+perl -pi -e 's/\@\@VAULT\@\@//g' "$REPO11D_TOKEN/engine/i18n/xx/claude/CLAUDE.md"
+OUT11D_TOKEN="$(bash "$SCRIPT_DIR/check-i18n.sh" "$REPO11D_TOKEN" 2>&1)"
+RC11D_TOKEN=$?
+if [ "$RC11D_TOKEN" -ne 0 ] && printf '%s' "$OUT11D_TOKEN" | grep -qF 'FAIL: 5.' && printf '%s' "$OUT11D_TOKEN" | grep -qF 'claude/CLAUDE.md'; then
+  pass "11d. dropped @@VAULT@@ token in an i18n/xx pair -> check-i18n.sh fails check 5, names lang+file"
+else
+  fail "11d. token-set check didn't fail as expected — out=[$OUT11D_TOKEN]"
+fi
+
+# =============================================================================
+# Case 12 — real `install --lang es` (engine/i18n/es overlay), status speaks
+#           the installed language, English fallback for an unknown lang
+# =============================================================================
+T12="$TDIR/case12"
+C12="$T12/c"
+H12="$T12/home"
+V12="$H12/second-brain"
+mkdir -p "$C12" "$H12"
+
+OUT12A="$(CLAUDE_HOME="$C12" HOME="$H12" "$SBM" install --yes --lang es 2>&1)"
+RC12A=$?
+
+C12A_OK=1
+[ "$RC12A" -eq 0 ] || { C12A_OK=0; fail "12a. install --lang es exit != 0 — out=[$OUT12A]"; }
+
+CFG12_LANG="$(jq -r '.lang' "$C12/.second-brain/config.json" 2>/dev/null)"
+[ "$CFG12_LANG" = "es" ] || { C12A_OK=0; fail "12a. config.json lang != es — got [$CFG12_LANG]"; }
+
+LEFTOVER12A="$(grep -rlE '@@[A-Z0-9_]+@@' "$C12" "$V12" 2>/dev/null)"
+[ -z "$LEFTOVER12A" ] || { C12A_OK=0; fail "12a. leftover @@..@@ placeholders: $LEFTOVER12A"; }
+
+grep -qF 'Abrí la sesión según el método de trabajo:' "$C12/commands/start.md" 2>/dev/null \
+  || { C12A_OK=0; fail "12a. installed commands/start.md missing distinctive es overlay line"; }
+
+grep -qF '## Estado actual' "$V12/method/CONTEXT.template.md" 2>/dev/null \
+  || { C12A_OK=0; fail "12a. vault method/CONTEXT.template.md missing '## Estado actual'"; }
+
+BEGIN_COUNT12="$(grep -cF '<!-- BEGIN SECOND BRAIN METHOD -->' "$C12/CLAUDE.md" 2>/dev/null || true)"
+[ "$BEGIN_COUNT12" -eq 1 ] || { C12A_OK=0; fail "12a. CLAUDE.md BEGIN marker count != 1 — got $BEGIN_COUNT12"; }
+
+printf '%s' "$OUT12A" | grep -qF 'CÓMO EMPEZAR' \
+  || { C12A_OK=0; fail "12a. install output missing Spanish 'CÓMO EMPEZAR' (from es messages.env) — out=[$OUT12A]"; }
+
+[ "$C12A_OK" -eq 1 ] && pass "12a. install --lang es: exit 0, config lang=es, no leftover placeholders, es overlay used for start.md and vault CONTEXT template, single CLAUDE.md block, Spanish install output"
+
+# --- 12b: status speaks the installed language (Spanish) -------------------
+OUT12B="$(CLAUDE_HOME="$C12" HOME="$H12" "$SBM" status 2>&1)"
+RC12B=$?
+C12B_OK=1
+[ "$RC12B" -eq 0 ] || { C12B_OK=0; fail "12b. status exit != 0 — out=[$OUT12B]"; }
+printf '%s' "$OUT12B" | grep -qF 'ok — sin archivos .new, nada editado desde el último apply.' \
+  || { C12B_OK=0; fail "12b. status output not in Spanish — out=[$OUT12B]"; }
+[ "$C12B_OK" -eq 1 ] && pass "12b. status after a --lang es install prints Spanish (installed language, not English)"
+
+# --- 12c: update --no-pull --lang en (nothing hand-touched) -> back to English
+OUT12C="$(CLAUDE_HOME="$C12" HOME="$H12" "$SBM" update --no-pull --lang en 2>&1)"
+RC12C=$?
+C12C_OK=1
+[ "$RC12C" -eq 0 ] || { C12C_OK=0; fail "12c. update --no-pull --lang en exit != 0 — out=[$OUT12C]"; }
+printf '%s' "$OUT12C" | grep -qE 'conflict=0 ' || { C12C_OK=0; fail "12c. summary doesn't show conflict=0 — out=[$OUT12C]"; }
+grep -qF 'Open the session per the working method:' "$C12/commands/start.md" 2>/dev/null \
+  || { C12C_OK=0; fail "12c. installed commands/start.md not back to English"; }
+[ "$C12C_OK" -eq 1 ] && pass "12c. update --no-pull --lang en (nothing touched): exit 0, conflict=0, start.md back to English"
+
+# --- 12d: status after (c) speaks English again -----------------------------
+OUT12D="$(CLAUDE_HOME="$C12" HOME="$H12" "$SBM" status 2>&1)"
+RC12D=$?
+C12D_OK=1
+[ "$RC12D" -eq 0 ] || { C12D_OK=0; fail "12d. status exit != 0 — out=[$OUT12D]"; }
+printf '%s' "$OUT12D" | grep -qF 'ok — no .new files, nothing edited since the last apply.' \
+  || { C12D_OK=0; fail "12d. status output not in English — out=[$OUT12D]"; }
+[ "$C12D_OK" -eq 1 ] && pass "12d. status after switching back to --lang en prints English again"
+
+# --- 12e: status with an unknown installed lang in config.json -> English
+#          fallback, no crash --------------------------------------------
+CFG12E="$C12/.second-brain/config.json"
+TMP12E="$(mktemp "$T12/config.XXXXXX")"
+jq '.lang = "zz"' "$CFG12E" > "$TMP12E" && mv "$TMP12E" "$CFG12E"
+OUT12E="$(CLAUDE_HOME="$C12" HOME="$H12" "$SBM" status 2>&1)"
+RC12E=$?
+C12E_OK=1
+[ "$RC12E" -eq 0 ] || { C12E_OK=0; fail "12e. status with unknown installed lang exit != 0 — out=[$OUT12E]"; }
+printf '%s' "$OUT12E" | grep -qF 'ok — no .new files, nothing edited since the last apply.' \
+  || { C12E_OK=0; fail "12e. status with unknown installed lang didn't fall back to English — out=[$OUT12E]"; }
+[ "$C12E_OK" -eq 1 ] && pass "12e. status with an unknown installed lang (zz) in config.json -> exit 0, English fallback, no crash"
 
 # =============================================================================
 # Summary

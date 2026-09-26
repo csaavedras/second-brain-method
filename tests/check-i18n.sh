@@ -11,10 +11,43 @@
 #    bare MSG_SBM_[A-Z0-9_]+ referenced in ./sbm, has a corresponding key in
 #    en/messages.env, with no dead (unused) keys.
 #
-# Usage: bash tests/check-i18n.sh   (exit 0 = all pass)
+# The "translatable set" (F3a — per-language .md overlay in lib/apply.sh)
+# is: engine/claude/CLAUDE.md, engine/claude/commands/*.md,
+# engine/claude/agents/*.md, engine/method/*.md. `.sh` files and
+# settings.json are NEVER overlaid (see lib/apply.sh's header) so they are
+# out of scope for checks 3-6 below.
+#
+# 3. Every translatable file has its pair under engine/i18n/<lang>/<same
+#    relpath>, for every lang != en under engine/i18n/.
+# 4. If the English file's first `method-version: X.Y` comment differs
+#    from its i18n/<lang>/ pair's first `method-version: X.Y`, that's a
+#    stale translation — fail naming lang + file.
+# 5. The set of @@[A-Z0-9_]+@@ tokens (sorted, unique) must be identical
+#    between the English file and its i18n/<lang>/ pair — a dropped/added
+#    placeholder means the overlay would fail to render or silently lose a
+#    substitution.
+# 6. No orphans: every file under engine/i18n/<lang>/ other than
+#    messages.env must mirror a file in the translatable set (relpath match)
+#    — an i18n file with no English counterpart is never installed by
+#    apply() and is dead weight/a typo.
+#
+# With only en/ present (today), checks 3-6 pass trivially — nothing to
+# compare against yet.
+#
+# Usage: bash tests/check-i18n.sh [repo_root]
+#   - repo_root: optional positional arg, defaults to the REPO_ROOT env var
+#     if set, else this script's own repo checkout. Lets tests run these
+#     checks against a throwaway repo copy (e.g. a synthetic i18n/<lang>/)
+#     without touching the real engine/i18n/.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [ -n "${1:-}" ]; then
+  REPO_ROOT="$(cd "$1" && pwd)"
+elif [ -n "${REPO_ROOT:-}" ]; then
+  REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
+else
+  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -93,6 +126,112 @@ if [ -z "$MISSING_KEYS" ] && [ -z "$DEAD_KEYS" ]; then
   pass "2. every @@MSG_*@@ used in engine/**/*.sh and every bare MSG_SBM_* used in sbm has a key, no dead keys in en/messages.env"
 else
   fail "2. placeholder/key mismatch — used-without-key: [$MISSING_KEYS] dead-keys: [$DEAD_KEYS]"
+fi
+
+# =============================================================================
+# Build the translatable set: relpaths (under engine/) of every file an
+# i18n/<lang>/ overlay may replace. Source of truth = the English tree.
+# =============================================================================
+TRANSLATABLE="$TDIR/translatable.txt"
+: > "$TRANSLATABLE"
+[ -f "$REPO_ROOT/engine/claude/CLAUDE.md" ] && printf 'claude/CLAUDE.md\n' >> "$TRANSLATABLE"
+for f in "$REPO_ROOT"/engine/claude/commands/*.md; do
+  [ -f "$f" ] || continue
+  printf 'claude/commands/%s\n' "$(basename "$f")" >> "$TRANSLATABLE"
+done
+for f in "$REPO_ROOT"/engine/claude/agents/*.md; do
+  [ -f "$f" ] || continue
+  printf 'claude/agents/%s\n' "$(basename "$f")" >> "$TRANSLATABLE"
+done
+for f in "$REPO_ROOT"/engine/method/*.md; do
+  [ -f "$f" ] || continue
+  printf 'method/%s\n' "$(basename "$f")" >> "$TRANSLATABLE"
+done
+sort -u -o "$TRANSLATABLE" "$TRANSLATABLE"
+
+# extract_method_version <file> — prints the X.Y from the FIRST
+# `method-version: X.Y` occurrence in <file>, or nothing if none.
+extract_method_version() {
+  grep -oE 'method-version:[[:space:]]*[0-9]+\.[0-9]+' "$1" 2>/dev/null \
+    | head -1 \
+    | grep -oE '[0-9]+\.[0-9]+'
+}
+
+MISSING_PAIRS=""
+STALE_VERSIONS=""
+TOKEN_MISMATCHES=""
+ORPHANS=""
+
+for d in "$I18N_ROOT"/*/; do
+  [ -d "$d" ] || continue
+  lang="$(basename "$d")"
+  [ "$lang" = "en" ] && continue
+
+  # --- 3. every translatable file has its pair under i18n/<lang>/ --------
+  while IFS= read -r relpath; do
+    [ -n "$relpath" ] || continue
+    if [ ! -f "$d$relpath" ]; then
+      MISSING_PAIRS="$MISSING_PAIRS
+  $lang: missing pair for $relpath"
+      continue
+    fi
+
+    # --- 4. method-version parity (only meaningful when the pair exists) -
+    en_version="$(extract_method_version "$REPO_ROOT/engine/$relpath")"
+    lang_version="$(extract_method_version "$d$relpath")"
+    if [ -n "$en_version" ] && [ "$en_version" != "$lang_version" ]; then
+      STALE_VERSIONS="$STALE_VERSIONS
+  $lang: $relpath has method-version [$lang_version], expected [$en_version]"
+    fi
+
+    # --- 5. @@TOKEN@@ set parity ------------------------------------------
+    relpath_flat="$(printf '%s' "$relpath" | tr '/' '_')"
+    en_tokens="$TDIR/en_tokens_${lang}_${relpath_flat}.txt"
+    lang_tokens="$TDIR/lang_tokens_${lang}_${relpath_flat}.txt"
+    grep -oE '@@[A-Z0-9_]+@@' "$REPO_ROOT/engine/$relpath" 2>/dev/null | sort -u > "$en_tokens"
+    grep -oE '@@[A-Z0-9_]+@@' "$d$relpath" 2>/dev/null | sort -u > "$lang_tokens"
+    if ! cmp -s "$en_tokens" "$lang_tokens"; then
+      token_diff="$(comm -3 "$en_tokens" "$lang_tokens" | tr '\n' ' ')"
+      TOKEN_MISMATCHES="$TOKEN_MISMATCHES
+  $lang: $relpath token set differs (en-only/lang-only, tab-separated): [$token_diff]"
+    fi
+  done < "$TRANSLATABLE"
+
+  # --- 6. no orphans: every i18n/<lang>/ file (except messages.env) mirrors
+  #        a file in the translatable set --------------------------------
+  while IFS= read -r found; do
+    [ -n "$found" ] || continue
+    relpath="${found#"$d"}"
+    [ "$relpath" = "messages.env" ] && continue
+    if ! grep -qxF "$relpath" "$TRANSLATABLE"; then
+      ORPHANS="$ORPHANS
+  $lang: orphan i18n file with no English counterpart: $relpath"
+    fi
+  done < <(find "$d" -type f 2>/dev/null | sort)
+done
+
+if [ -z "$MISSING_PAIRS" ]; then
+  pass "3. every translatable file has its i18n/<lang>/ pair, for every lang != en"
+else
+  fail "3. missing i18n pair(s):$MISSING_PAIRS"
+fi
+
+if [ -z "$STALE_VERSIONS" ]; then
+  pass "4. method-version comment matches between English files and their i18n/<lang>/ pair"
+else
+  fail "4. stale method-version in i18n pair(s):$STALE_VERSIONS"
+fi
+
+if [ -z "$TOKEN_MISMATCHES" ]; then
+  pass "5. @@TOKEN@@ placeholder set is identical between English files and their i18n/<lang>/ pair"
+else
+  fail "5. @@TOKEN@@ set mismatch in i18n pair(s):$TOKEN_MISMATCHES"
+fi
+
+if [ -z "$ORPHANS" ]; then
+  pass "6. no i18n/<lang>/ file lacks an English counterpart in the translatable set"
+else
+  fail "6. orphan i18n file(s):$ORPHANS"
 fi
 
 # =============================================================================
