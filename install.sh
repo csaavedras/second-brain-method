@@ -25,6 +25,9 @@ done
 CLAUDE_DIR="${CLAUDE_HOME:-$HOME/.claude}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE="$SCRIPT_DIR/engine"
+MESSAGES_ENV="$ENGINE/i18n/en/messages.env"
+# shellcheck source=lib/render.sh
+source "$SCRIPT_DIR/lib/render.sh"
 
 # --- requirements -----------------------------------------------------------
 [ "$(uname)" = "Darwin" ] || { echo "✗ This installer is macOS only."; exit 1; }
@@ -132,16 +135,12 @@ else
   DISPLAY="$VAULT_PATH"; SHELLF="$VAULT_PATH"
 fi
 echo "▸ Adjusting the method's paths to the vault ($DISPLAY)"
-MD_FILES=("$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR"/commands/*.md)
-for f in "${MD_FILES[@]}"; do
+RENDER_FILES=("$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR"/commands/*.md \
+              "$CLAUDE_DIR"/hooks/*.sh "$VAULT_PATH"/method/scripts/*.sh)
+for f in "${RENDER_FILES[@]}"; do
   [ -f "$f" ] || continue
-  sed -i '' "s#@@VAULT@@#$DISPLAY#g" "$f"
-done
-SH_FILES=("$VAULT_PATH/method/scripts/brain-health.sh" \
-          "$VAULT_PATH/method/scripts/brain-metrics.sh")
-for f in "${SH_FILES[@]}"; do
-  [ -f "$f" ] || continue
-  sed -i '' "s#@@VAULT@@#$SHELLF#g" "$f"
+  render_file "$f" "$f" "$MESSAGES_ENV" "$DISPLAY" "$SHELLF" \
+    || { echo "✗ failed to render $f"; exit 1; }
 done
 
 # --- 7. git init ------------------------------------------------------------
@@ -150,9 +149,8 @@ done
 # --- 8. verification --------------------------------------------------------
 echo ""
 echo "▸ Verification:"
-if grep -rIl "@@VAULT@@" "$CLAUDE_DIR"/CLAUDE.md "$CLAUDE_DIR"/commands/*.md \
-     "$VAULT_PATH/method/scripts/brain-health.sh" \
-     "$VAULT_PATH/method/scripts/brain-metrics.sh" >/dev/null 2>&1; then
+if grep -rIlE '@@[A-Z_]+@@' "$CLAUDE_DIR"/CLAUDE.md "$CLAUDE_DIR"/commands/*.md \
+     "$CLAUDE_DIR"/hooks/*.sh "$VAULT_PATH"/method/scripts/*.sh >/dev/null 2>&1; then
   echo "  ✗ some paths were not adjusted — check by hand"; exit 1
 fi
 HOOKS_OK=$(jq -r '[.hooks // {} | to_entries[].value[].hooks[]?.command] | join(" ")
@@ -163,7 +161,9 @@ fi
 echo "  ok — commands installed, hooks merged (close/brief/metrics), vault paths OK"
 echo ""
 echo "  Vault:"
-find "$VAULT_PATH" -maxdepth 2 -type d -not -path '*/.git*' | sed "s#$VAULT_PATH#    .#"
+find "$VAULT_PATH" -maxdepth 2 -type d -not -path '*/.git*' | while IFS= read -r d; do
+  echo "    .${d#"$VAULT_PATH"}"
+done
 
 # --- 9. next steps ----------------------------------------------------------
 cat <<EOF

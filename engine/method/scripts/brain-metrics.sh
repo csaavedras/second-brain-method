@@ -8,19 +8,19 @@
 # Usage: brain-metrics.sh [vault-path]
 set -u
 VAULT="${1:-@@VAULT@@}"
-[ -d "$VAULT" ] || { echo "ERROR: vault does not exist: $VAULT"; exit 2; }
+[ -d "$VAULT" ] || { printf '@@MSG_METRICS_ERR_NO_VAULT@@\n' "$VAULT"; exit 2; }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-echo "🧠 brain-metrics — $VAULT"
+printf '@@MSG_METRICS_HEADER@@\n' "$VAULT"
 
 # ── Discover metrics.jsonl files ─────────────────────────────────────────────
 find "$VAULT" -path "$VAULT/projects/*/metrics/metrics.jsonl" -type f 2>/dev/null | sort > "$TMP/files"
 NFILES=$(wc -l < "$TMP/files" | tr -d ' ')
 
 if [ "$NFILES" -eq 0 ]; then
-  echo "   No metrics yet — close a task with /close to start recording."
+  printf '@@MSG_METRICS_NO_METRICS_YET@@\n'
   exit 0
 fi
 
@@ -45,10 +45,22 @@ done < "$TMP/files"
 sort -u "$TMP/projects" -o "$TMP/projects"
 
 TOTAL_TASKS=$(wc -l < "$TMP/all.jsonl" | tr -d ' ')
-echo "   Projects: $NFILES   Tasks: $TOTAL_TASKS"
+printf '@@MSG_METRICS_SUMMARY@@\n' "$NFILES" "$TOTAL_TASKS"
 
 # ── jq report filter: one program, reused for overall + each project ────────
+# User-visible text comes in as --arg strings (see call sites below), never
+# hardcoded here. fmt() fills %s placeholders by splitting on the literal
+# "%s" marker (never a regex substitution) so an arg value can never be
+# misinterpreted as part of the template; %% in the template collapses to a
+# literal % once the split is done (so it can never eat into arg values).
 JQ_FILTER='
+def fmt($tmpl; $args):
+  ($tmpl | split("%s") | map(gsub("%%"; "%"))) as $parts
+  | if ($parts | length) != (($args | length) + 1) then $tmpl
+    else reduce range(0; $args | length) as $i
+           ($parts[0]; . + ($args[$i] | tostring) + $parts[$i + 1])
+    end;
+
 def avgf(f):
   (map(f) | map(select(. != null))) as $vals
   | if ($vals | length) > 0 then (($vals | add) / ($vals | length)) else null end;
@@ -59,7 +71,7 @@ def round1:
 . as $items
 | ($items | length) as $n
 | if $n == 0 then
-    "   (no tasks recorded yet)"
+    $no_tasks
   else
     ( $items | group_by(.type) | map({
         type: (.[0].type // "unknown"),
@@ -79,26 +91,26 @@ def round1:
       }) | sort_by(.month)
     ) as $by_month
     | (
-        "   Tasks: \($n)\n"
-        + "\n   By type:\n"
+        fmt($tasks_line; [$n]) + "\n"
+        + "\n   " + $by_type_hdr + "\n"
         + ( $by_type
-            | map("     - \(.type): \(.count) task(s), avg total \(.avg_total // "n/a")min, avg tokens \(.avg_tokens // "n/a")")
+            | map(fmt($by_type_item; [.type, .count, (.avg_total // $na), (.avg_tokens // $na)]))
             | join("\n")
           ) + "\n"
-        + "\n   Estimate vs actual:\n"
-        + ( if ($with_est | length) == 0 then "     (no estimates recorded)"
+        + "\n   " + $est_hdr + "\n"
+        + ( if ($with_est | length) == 0 then $no_est
             else ( $with_est
-                   | map("     - \(.task // "?"): \(.estimate) → \(.duration.total_min // "n/a")min")
+                   | map(fmt($est_item; [(.task // "?"), .estimate, (.duration.total_min // $na)]))
                    | join("\n")
                  )
             end
           ) + "\n"
-        + "\n   Parent vs subagents tokens:\n"
-        + "     - parent: \($parent_tok) (\(if $total_tok > 0 then (($parent_tok*100/$total_tok)|round) else 0 end)%)\n"
-        + "     - subagents: \($side_tok) (\(if $total_tok > 0 then (($side_tok*100/$total_tok)|round) else 0 end)%)\n"
-        + "\n   Month over month:\n"
+        + "\n   " + $tokens_hdr + "\n"
+        + fmt($tokens_parent; [$parent_tok, (if $total_tok > 0 then (($parent_tok*100/$total_tok)|round) else 0 end)]) + "\n"
+        + fmt($tokens_subagents; [$side_tok, (if $total_tok > 0 then (($side_tok*100/$total_tok)|round) else 0 end)]) + "\n"
+        + "\n   " + $month_hdr + "\n"
         + ( $by_month
-            | map("     - \(.month): \(.tasks) task(s), \(.tokens) tokens")
+            | map(fmt($month_item; [.month, .tasks, .tokens]))
             | join("\n")
           )
       )
@@ -107,21 +119,49 @@ def round1:
 
 # ── Overall report ───────────────────────────────────────────────────────────
 echo
-echo "── Overall ──────────────────────────────────────────"
-jq -s -r "$JQ_FILTER" "$TMP/all.jsonl"
+printf '@@MSG_METRICS_OVERALL_TITLE@@\n'
+jq -s -r "$JQ_FILTER" \
+  --arg no_tasks '@@MSG_METRICS_NO_TASKS@@' \
+  --arg tasks_line '@@MSG_METRICS_TASKS_LINE@@' \
+  --arg by_type_hdr '@@MSG_METRICS_BY_TYPE_HDR@@' \
+  --arg by_type_item '@@MSG_METRICS_BY_TYPE_ITEM@@' \
+  --arg est_hdr '@@MSG_METRICS_EST_HDR@@' \
+  --arg no_est '@@MSG_METRICS_NO_EST@@' \
+  --arg est_item '@@MSG_METRICS_EST_ITEM@@' \
+  --arg tokens_hdr '@@MSG_METRICS_TOKENS_HDR@@' \
+  --arg tokens_parent '@@MSG_METRICS_TOKENS_PARENT@@' \
+  --arg tokens_subagents '@@MSG_METRICS_TOKENS_SUBAGENTS@@' \
+  --arg month_hdr '@@MSG_METRICS_MONTH_HDR@@' \
+  --arg month_item '@@MSG_METRICS_MONTH_ITEM@@' \
+  --arg na '@@MSG_METRICS_NA@@' \
+  "$TMP/all.jsonl"
 
 # ── Per-project report ───────────────────────────────────────────────────────
 while IFS= read -r proj; do
   [ -z "$proj" ] && continue
   echo
-  echo "── Project: $proj ───────────────────────────────────"
-  jq -s -r "$JQ_FILTER" "$TMP/proj-$proj.jsonl"
+  printf '@@MSG_METRICS_PROJECT_TITLE@@\n' "$proj"
+  jq -s -r "$JQ_FILTER" \
+    --arg no_tasks '@@MSG_METRICS_NO_TASKS@@' \
+    --arg tasks_line '@@MSG_METRICS_TASKS_LINE@@' \
+    --arg by_type_hdr '@@MSG_METRICS_BY_TYPE_HDR@@' \
+    --arg by_type_item '@@MSG_METRICS_BY_TYPE_ITEM@@' \
+    --arg est_hdr '@@MSG_METRICS_EST_HDR@@' \
+    --arg no_est '@@MSG_METRICS_NO_EST@@' \
+    --arg est_item '@@MSG_METRICS_EST_ITEM@@' \
+    --arg tokens_hdr '@@MSG_METRICS_TOKENS_HDR@@' \
+    --arg tokens_parent '@@MSG_METRICS_TOKENS_PARENT@@' \
+    --arg tokens_subagents '@@MSG_METRICS_TOKENS_SUBAGENTS@@' \
+    --arg month_hdr '@@MSG_METRICS_MONTH_HDR@@' \
+    --arg month_item '@@MSG_METRICS_MONTH_ITEM@@' \
+    --arg na '@@MSG_METRICS_NA@@' \
+    "$TMP/proj-$proj.jsonl"
 done < "$TMP/projects"
 
 echo
 if [ "$MALFORMED" -gt 0 ]; then
-  echo "⚠️  $MALFORMED malformed line(s) skipped"
+  printf '@@MSG_METRICS_MALFORMED@@\n' "$MALFORMED"
 else
-  echo "✅ Report complete — no malformed lines"
+  printf '@@MSG_METRICS_CLEAN@@\n'
 fi
 exit 0

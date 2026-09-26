@@ -108,7 +108,7 @@ Run **`./install.sh [VAULT_PATH]`** from the repo root. It installs
 up whatever was there), merges the method's hooks into `settings.json`
 without clobbering your config, creates the vault (folders + home + git
 init), and copies `engine/method/` into `<vault>/method/`. It renders the
-`@@VAULT@@` placeholder baked into `CLAUDE.md`, the commands and
+vault-path placeholder baked into `CLAUDE.md`, the commands and
 `scripts/{brain-health,brain-metrics}.sh` with the real vault path — you
 don't fill in anything by hand. Configure the global gitignore for
 `CLAUDE.local.md` separately:
