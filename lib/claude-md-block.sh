@@ -67,6 +67,22 @@
 CLAUDE_MD_BEGIN='<!-- BEGIN SECOND BRAIN METHOD -->'
 CLAUDE_MD_END='<!-- END SECOND BRAIN METHOD -->'
 
+# _block_sha <file> — sha256 of <file>'s managed block, computed byte-
+# exactly: claude_md_extract_block's stdout is piped STRAIGHT into shasum,
+# never round-tripped through a bash command-substitution variable first
+# (that would silently strip ALL trailing newlines, not just the single one
+# extract_block itself already trims — an asymmetry that used to make a
+# hand-edit consisting only of extra blank lines before END invisible to
+# the sha comparison). Prints nothing and returns non-zero if <file> has no
+# well-ordered block, same as claude_md_extract_block. Every stored/current
+# block-sha computation in lib/apply.sh and sbm's cmd_status goes through
+# this one function so there's a single place that owns "how a block is
+# hashed".
+_block_sha() {
+  local file="$1"
+  claude_md_extract_block "$file" | shasum -a 256 | cut -d' ' -f1
+}
+
 claude_md_has_block() {
   local file="$1" begin_count end_count begin_line end_line
 

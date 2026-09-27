@@ -144,15 +144,36 @@ resolve_lang_messages() {
   MESSAGES_ENV="$path"
 }
 
+# dir_has_visible_entries <dir> — true (exit 0) when <dir> exists and
+# contains at least one entry NOT starting with "." (bash 3.2 safe glob, no
+# `ls -A` — `ls -A` lists dotfiles too, which made a vault whose only
+# entries are things like .git/, .obsidian/ or .DS_Store count as "non-
+# empty" for both the vault guard and scaffold_vault below, when it should
+# be treated the same as a genuinely empty directory). Relies on the
+# unquoted glob NOT matching and expanding to the literal pattern string
+# when nothing matches (standard bash behavior without nullglob) — that
+# literal string is never an existing path, so the `-e` test correctly
+# reports "nothing found".
+dir_has_visible_entries() {
+  local dir="$1" entry
+  [ -d "$dir" ] || return 1
+  for entry in "$dir"/*; do
+    [ -e "$entry" ] && return 0
+  done
+  return 1
+}
+
 # --- vault scaffold (install-time only; NOT part of apply()) --------------
 # Verbatim port of install.sh step 5 (folders + .gitignore + home.md) plus
 # step 7 (git init), reused as-is per the brief. home.md's frontmatter is
 # generated here (it needs today's date); its body comes from the
 # per-language vault/home.md overlay via _apply_src (F4a) — not tracked by
-# the manifest, scaffolded once, only into a missing/empty vault.
+# the manifest, scaffolded once, only into a missing/empty vault (a vault
+# containing only dotfiles/dot-dirs counts as empty here too — see
+# dir_has_visible_entries above).
 scaffold_vault() {
   local vault="$1" lang="$2"
-  if [ ! -d "$vault" ] || [ -z "$(ls -A "$vault" 2>/dev/null)" ]; then
+  if [ ! -d "$vault" ] || ! dir_has_visible_entries "$vault"; then
     mkdir -p "$vault"/{projects,learning/til,learning/concept,patterns,briefs,00-index}
 
     cat > "$vault/.gitignore" <<'EOF'
@@ -180,7 +201,8 @@ EOF
 }
 
 # vault_looks_foreign <vault> — true (exit 0) when <vault> exists, is
-# non-empty, and has neither a method/ nor a projects/ folder — i.e. it
+# non-empty (see dir_has_visible_entries — dotfiles/dot-dirs alone don't
+# count), and has neither a method/ nor a projects/ folder — i.e. it
 # doesn't look like a second-brain vault (fresh or already-adopted) at all.
 # A missing or empty directory, or one that already has method/ or
 # projects/, is fine (exit 1) — scaffold_vault/apply adopt those without
@@ -189,28 +211,79 @@ EOF
 vault_looks_foreign() {
   local vault="$1"
   [ -d "$vault" ] || return 1
-  [ -n "$(ls -A "$vault" 2>/dev/null)" ] || return 1
+  dir_has_visible_entries "$vault" || return 1
   if [ -d "$vault/method" ] || [ -d "$vault/projects" ]; then
     return 1
   fi
   return 0
 }
 
-# absolute_path <path> — expands a leading "~" to $HOME, then, if the
-# result isn't already absolute, resolves it against the current working
-# directory (bash 3.2 safe: plain case/parameter expansion, no realpath).
-# Also strips a single trailing "/" (cheap normalization) so stored/
-# rendered vault paths never carry one.
+# absolute_path <path> — resolves <path> to an absolute, lexically
+# normalized path (bash 3.2 safe: plain case/parameter expansion + a manual
+# "." / ".." walk, no realpath — the vault this is most often called for
+# may not exist yet, so an existence-based resolution isn't an option).
+# A leading "~" or "~/..." expands to $HOME; a leading "~someuser..." isn't
+# supported (no dependency-free way to look up another user's home
+# directory in bash 3.2) and is a hard error naming the unsupported form,
+# instead of silently treating "~someuser" as a literal path segment. A
+# path that isn't already absolute is resolved against the current working
+# directory first (plain string concatenation), then "." segments are
+# dropped and ".." segments pop the previous kept segment (never past the
+# root) — so both "." and "../x" normalize without requiring the target to
+# exist. A result of exactly "/" is refused: the method must never treat
+# the filesystem root as a vault.
 absolute_path() {
-  local p="${1/#\~/$HOME}"
+  local p="$1"
+
+  case "$p" in
+    "~") p="$HOME" ;;
+    "~/"*) p="$HOME/${p#\~/}" ;;
+    "~"*)
+      msg MSG_SBM_VAULT_TILDE_USER_UNSUPPORTED "$p" >&2
+      exit 1
+      ;;
+  esac
+
   case "$p" in
     /*) : ;;
     *)  p="$PWD/$p" ;;
   esac
-  case "$p" in
-    */) p="${p%/}" ;;
-  esac
-  printf '%s\n' "$p"
+
+  local old_ifs="$IFS" seg
+  local -a segs=()
+  local -a kept=()
+  IFS='/'
+  # shellcheck disable=SC2086 disable=SC2231
+  set -f
+  for seg in $p; do
+    segs+=("$seg")
+  done
+  set +f
+  IFS="$old_ifs"
+
+  for seg in "${segs[@]+"${segs[@]}"}"; do
+    case "$seg" in
+      ""|".") : ;;
+      "..")
+        if [ "${#kept[@]}" -gt 0 ]; then
+          unset "kept[$((${#kept[@]} - 1))]"
+        fi
+        ;;
+      *) kept+=("$seg") ;;
+    esac
+  done
+
+  local result="/"
+  if [ "${#kept[@]}" -gt 0 ]; then
+    result="$(printf '/%s' "${kept[@]}")"
+  fi
+
+  if [ "$result" = "/" ]; then
+    msg MSG_SBM_VAULT_ROOT_REFUSED >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$result"
 }
 
 # --- report summary helper (used by both install and update) --------------
@@ -340,16 +413,14 @@ cmd_update() {
     # sourced lib/*.sh (functions are bound at source time, not looked up
     # again per-call), so if the pull changed apply()'s behavior, only a
     # fresh process picks it up. --no-pull guards against a loop; env vars
-    # (CLAUDE_HOME/HOME) are inherited as-is by exec.
-    if [ -n "$LANG_OPT" ] && [ "$TAKE_NEW" -eq 1 ]; then
-      exec "$repo/sbm" update --no-pull --lang "$LANG_OPT" --take-new
-    elif [ -n "$LANG_OPT" ]; then
-      exec "$repo/sbm" update --no-pull --lang "$LANG_OPT"
-    elif [ "$TAKE_NEW" -eq 1 ]; then
-      exec "$repo/sbm" update --no-pull --take-new
-    else
-      exec "$repo/sbm" update --no-pull
-    fi
+    # (CLAUDE_HOME/HOME) are inherited as-is by exec. Args array instead of
+    # an if/elif chain per flag combination (set -u safe on bash 3.2: the
+    # array always has at least "update" and "--no-pull" in it, so
+    # "${re_exec_args[@]}" is never expanded empty).
+    local -a re_exec_args=(update --no-pull)
+    [ -n "$LANG_OPT" ] && re_exec_args+=(--lang "$LANG_OPT")
+    [ "$TAKE_NEW" -eq 1 ] && re_exec_args+=(--take-new)
+    exec "$repo/sbm" "${re_exec_args[@]}"
   fi
 
   old_version="$(config_get version)"
@@ -422,12 +493,40 @@ cmd_status() {
     } | sort
   )"
 
-  local mpath key msha csha edited_list
+  local mpath key msha csha edited_list claude_md_dest claude_md_block_key entry
   mpath="$(manifest_path)"
   edited_list=""
+  claude_md_dest="$CLAUDE_DIR/CLAUDE.md"
+  claude_md_block_key="${claude_md_dest}#block"
   if [ -f "$mpath" ]; then
     while IFS= read -r key; do
       [ -n "$key" ] || continue
+
+      if [ "$key" = "$claude_md_block_key" ]; then
+        # The managed block's key isn't a real path ("...CLAUDE.md#block"),
+        # so it needs its own comparison: hash the CURRENT block (only
+        # meaningful when CLAUDE.md still has a well-formed block — a
+        # missing/corrupt file just means nothing to report here, same as
+        # any other key whose path vanished) and compare it to the stored
+        # sha via the same _block_sha helper apply() uses (F5/F6 in the
+        # brief), labeling it clearly instead of printing the raw #block
+        # key.
+        msha="$(manifest_get "$key")"
+        [ -n "$msha" ] || continue
+        claude_md_has_block "$claude_md_dest" || continue
+        csha="$(_block_sha "$claude_md_dest")"
+        if [ "$msha" != "$csha" ]; then
+          entry="$claude_md_dest (managed block)"
+          if [ -z "$edited_list" ]; then
+            edited_list="$entry"
+          else
+            edited_list="$edited_list
+$entry"
+          fi
+        fi
+        continue
+      fi
+
       [ -f "$key" ] || continue
       msha="$(manifest_get "$key")"
       csha="$(manifest_sha256 "$key")"

@@ -310,8 +310,16 @@ fi
 if [ "$(cat "$C8/commands/close.md")" != "$(printf 'My own close.md content, nothing like the engine ships.\n')" ]; then
   C8_OK=0; fail "8a. commands/close.md was modified, expected byte-unchanged"
 fi
+# F3: the plain-conflict CLAUDE.md.new preview must be EXACTLY what
+# --take-new would write — the user's old foreign content with the managed
+# block appended once — not the block alone.
+if ! grep -qF 'My old CLAUDE.md' "$C8/CLAUDE.md.new" 2>/dev/null || ! grep -qF 'Some personal rule' "$C8/CLAUDE.md.new" 2>/dev/null; then
+  C8_OK=0; fail "8a. CLAUDE.md.new doesn't contain the old foreign content (should preview what --take-new writes, not the block alone)"
+fi
+BLOCK_COUNT8A="$(grep -cF '<!-- BEGIN SECOND BRAIN METHOD -->' "$C8/CLAUDE.md.new" 2>/dev/null || true)"
+[ "$BLOCK_COUNT8A" -eq 1 ] || { C8_OK=0; fail "8a. CLAUDE.md.new BEGIN marker count != 1 — got $BLOCK_COUNT8A"; }
 
-[ "$C8_OK" -eq 1 ] && pass "8a. adopting a foreign install: exit 0, 2 conflicts, .new files written, originals byte-unchanged"
+[ "$C8_OK" -eq 1 ] && pass "8a. adopting a foreign install: exit 0, 2 conflicts, .new files written, originals byte-unchanged, CLAUDE.md.new previews old content + block once (F3)"
 
 OUT8T="$(CLAUDE_HOME="$C8" HOME="$H8" "$SBM" update --no-pull --take-new 2>&1)"
 RC8T=$?
@@ -1029,6 +1037,226 @@ if printf '%s' "$OUT21S" | grep -qF "$CONFLICT_DEST21"; then
 fi
 
 [ "$C21_OK" -eq 1 ] && pass "21. resolving a conflict by copying .new over dest: next update recognizes it as a no-op (no spurious UPDATED), removes the leftover .new, status stops listing it"
+
+# =============================================================================
+# Case 22 — a vault whose only entries are dotfiles/dot-dirs (F1) counts as
+#           EMPTY for both the vault guard and the scaffold: no --force
+#           prompt/abort, and the full scaffold (home.md etc.) is written.
+# =============================================================================
+T22="$TDIR/case22"
+C22="$T22/c"
+H22="$T22/home"
+V22="$T22/dotfile-only-vault"
+mkdir -p "$C22" "$H22" "$V22/.obsidian" "$V22/.git"
+: > "$V22/.DS_Store"
+printf 'workspace state\n' > "$V22/.obsidian/workspace.json"
+
+OUT22="$(CLAUDE_HOME="$C22" HOME="$H22" "$SBM" install --yes --vault "$V22" 2>&1)"
+RC22=$?
+C22_OK=1
+[ "$RC22" -eq 0 ] || { C22_OK=0; fail "22. install into a dotfile-only vault didn't succeed (should count as empty, no --force needed) — out=[$OUT22]"; }
+[ -d "$V22/method" ] || { C22_OK=0; fail "22. vault/method/ missing — scaffold wasn't applied"; }
+[ -f "$V22/00-index/home.md" ] || { C22_OK=0; fail "22. vault 00-index/home.md missing — scaffold was skipped"; }
+[ -f "$V22/.obsidian/workspace.json" ] || { C22_OK=0; fail "22. pre-existing .obsidian/workspace.json lost"; }
+
+[ "$C22_OK" -eq 1 ] && pass "22. install into a vault with only dotfiles/dot-dirs (.obsidian/, .git/, .DS_Store): counts as empty, no --force prompt, full scaffold applied, dotfiles kept (F1)"
+
+# =============================================================================
+# Case 23 — legacy install with no stored CLAUDE.md block-sha (F2): unedited
+#           -> just records the sha, no write/backup; hand-edited (can't be
+#           told apart from untouched without a baseline) -> backed up then
+#           replaced, reported TAKEN, sha recorded going forward.
+# =============================================================================
+T23="$TDIR/case23"
+C23="$T23/c"
+H23="$T23/home"
+V23="$T23/vault23"
+mkdir -p "$C23" "$H23"
+OUT23I="$(CLAUDE_HOME="$C23" HOME="$H23" "$SBM" install --yes --vault "$V23" 2>&1)"
+RC23I=$?
+C23_OK=1
+[ "$RC23I" -eq 0 ] || { C23_OK=0; fail "23. setup install failed — out=[$OUT23I]"; }
+
+MPATH23="$C23/.second-brain/manifest.json"
+BLOCK_KEY23="$C23/CLAUDE.md#block"
+jq --arg k "$BLOCK_KEY23" 'del(.[$k])' "$MPATH23" > "$MPATH23.tmp" && mv "$MPATH23.tmp" "$MPATH23"
+
+BACKUPS_BEFORE23="$(find "$C23/.second-brain/backups" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
+CLAUDEMD23_BEFORE="$(cat "$C23/CLAUDE.md")"
+OUT23A="$(CLAUDE_HOME="$C23" HOME="$H23" "$SBM" update --no-pull 2>&1)"
+RC23A=$?
+CLAUDEMD23_AFTER="$(cat "$C23/CLAUDE.md")"
+BACKUPS_AFTER23="$(find "$C23/.second-brain/backups" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
+STORED_SHA23A="$(jq -r --arg k "$BLOCK_KEY23" '.[$k] // empty' "$MPATH23")"
+if [ "$RC23A" -eq 0 ] && printf '%s' "$OUT23A" | grep -qE 'conflict=0 .*taken=0' && [ "$CLAUDEMD23_BEFORE" = "$CLAUDEMD23_AFTER" ] && [ "$BACKUPS_BEFORE23" = "$BACKUPS_AFTER23" ] && [ -n "$STORED_SHA23A" ]; then
+  pass "23a. legacy install (no stored block sha) + unedited block -> just records the sha, no write, no backup (F2)"
+else
+  C23_OK=0
+  fail "23a. legacy-no-sha unedited handling wrong — rc=$RC23A out=[$OUT23A] stored_sha=[$STORED_SHA23A]"
+fi
+
+jq --arg k "$BLOCK_KEY23" 'del(.[$k])' "$MPATH23" > "$MPATH23.tmp" && mv "$MPATH23.tmp" "$MPATH23"
+perl -pi -e 's/(<!-- BEGIN SECOND BRAIN METHOD -->)/$1\n<!-- hand-edited, case 23b, no baseline -->/' "$C23/CLAUDE.md"
+
+OUT23B="$(CLAUDE_HOME="$C23" HOME="$H23" "$SBM" update --no-pull 2>&1)"
+RC23B=$?
+C23B_OK=1
+[ "$RC23B" -eq 0 ] || { C23B_OK=0; fail "23b. update after legacy-no-sha hand-edit failed — out=[$OUT23B]"; }
+printf '%s' "$OUT23B" | grep -qE 'taken=1' || { C23B_OK=0; fail "23b. summary doesn't show taken=1 — out=[$OUT23B]"; }
+if grep -qF 'hand-edited, case 23b, no baseline' "$C23/CLAUDE.md" 2>/dev/null; then
+  C23B_OK=0
+  fail "23b. CLAUDE.md still contains the stale hand-edit after the legacy-sha replace"
+fi
+BACKUP23_FOUND="$(find "$C23/.second-brain/backups" -type f -name 'CLAUDE.md' 2>/dev/null | xargs grep -l 'hand-edited, case 23b' 2>/dev/null | head -1)"
+[ -n "$BACKUP23_FOUND" ] || { C23B_OK=0; fail "23b. no backup of the pre-replace hand-edited CLAUDE.md found"; }
+STORED_SHA23B="$(jq -r --arg k "$BLOCK_KEY23" '.[$k] // empty' "$MPATH23")"
+[ -n "$STORED_SHA23B" ] || { C23B_OK=0; fail "23b. block sha not recorded after the legacy-sha replace"; }
+
+[ "$C23B_OK" -eq 1 ] && pass "23b. legacy install (no stored block sha) + hand-edited block -> backed up then replaced, reported TAKEN, sha recorded (F2)"
+
+# =============================================================================
+# Case 24 — CLAUDE.md managed-block edit detection is byte-exact (F5): blank
+#           lines added immediately before END, with no other change, must
+#           still be detected as a hand-edit (conflict=1), not silently
+#           swallowed by a lossy trailing-newline comparison.
+# =============================================================================
+T24="$TDIR/case24"
+C24="$T24/c"
+H24="$T24/home"
+V24="$T24/vault24"
+mkdir -p "$C24" "$H24"
+OUT24I="$(CLAUDE_HOME="$C24" HOME="$H24" "$SBM" install --yes --vault "$V24" 2>&1)"
+RC24I=$?
+C24_OK=1
+[ "$RC24I" -eq 0 ] || { C24_OK=0; fail "24. setup install failed — out=[$OUT24I]"; }
+
+perl -pi -e 's/(<!-- END SECOND BRAIN METHOD -->)/\n\n$1/' "$C24/CLAUDE.md"
+CLAUDEMD24_BEFORE="$(cat "$C24/CLAUDE.md")"
+
+OUT24A="$(CLAUDE_HOME="$C24" HOME="$H24" "$SBM" update --no-pull 2>&1)"
+RC24A=$?
+CLAUDEMD24_AFTER="$(cat "$C24/CLAUDE.md")"
+[ "$RC24A" -eq 0 ] || { C24_OK=0; fail "24. update after blank-lines-before-END edit exit != 0 — out=[$OUT24A]"; }
+printf '%s' "$OUT24A" | grep -qE 'conflict=1 ' || { C24_OK=0; fail "24. summary doesn't show conflict=1 for a blank-lines-only edit — out=[$OUT24A]"; }
+[ -f "$C24/CLAUDE.md.new" ] || { C24_OK=0; fail "24. CLAUDE.md.new not created"; }
+[ "$CLAUDEMD24_BEFORE" = "$CLAUDEMD24_AFTER" ] || { C24_OK=0; fail "24. CLAUDE.md was modified, expected byte-unchanged"; }
+
+[ "$C24_OK" -eq 1 ] && pass "24. blank lines added right before END inside the managed block, no other change -> still detected as a hand-edit, conflict=1 (F5 regression test)"
+
+# =============================================================================
+# Case 25 — absolute_path lexical normalization (F6): "." resolves to the
+#           cwd, "../x" is normalized without requiring the target to
+#           exist, and "/" is refused with a clear error.
+# =============================================================================
+T25="$TDIR/case25"
+C25A="$T25/c-a"
+H25A="$T25/home-a"
+CWD25A="$T25/cwd-a"
+mkdir -p "$C25A" "$H25A" "$CWD25A"
+
+OUT25A="$(cd "$CWD25A" && CLAUDE_HOME="$C25A" HOME="$H25A" "$SBM" install --yes --vault "." 2>&1)"
+RC25A=$?
+C25_OK=1
+[ "$RC25A" -eq 0 ] || { C25_OK=0; fail "25a. install --vault . exit != 0 — out=[$OUT25A]"; }
+CFG25A_VAULT="$(jq -r '.vault' "$C25A/.second-brain/config.json" 2>/dev/null)"
+[ "$CFG25A_VAULT" = "$CWD25A" ] || { C25_OK=0; fail "25a. --vault . didn't resolve to the cwd — got [$CFG25A_VAULT] want [$CWD25A]"; }
+
+C25B="$T25/c-b"
+H25B="$T25/home-b"
+CWD25B="$T25/nested/cwd-b"
+mkdir -p "$C25B" "$H25B" "$CWD25B"
+OUT25B="$(cd "$CWD25B" && CLAUDE_HOME="$C25B" HOME="$H25B" "$SBM" install --yes --vault "../sibling-vault" 2>&1)"
+RC25B=$?
+EXPECTED_V25B="$T25/nested/sibling-vault"
+CFG25B_VAULT="$(jq -r '.vault' "$C25B/.second-brain/config.json" 2>/dev/null)"
+[ "$RC25B" -eq 0 ] || { C25_OK=0; fail "25b. install --vault ../sibling-vault exit != 0 — out=[$OUT25B]"; }
+[ "$CFG25B_VAULT" = "$EXPECTED_V25B" ] || { C25_OK=0; fail "25b. --vault ../sibling-vault not normalized correctly — got [$CFG25B_VAULT] want [$EXPECTED_V25B]"; }
+
+C25C="$T25/c-c"
+H25C="$T25/home-c"
+mkdir -p "$C25C" "$H25C"
+OUT25C="$(CLAUDE_HOME="$C25C" HOME="$H25C" "$SBM" install --yes --vault "/" 2>&1)"
+RC25C=$?
+if [ "$RC25C" -ne 0 ] && printf '%s' "$OUT25C" | grep -qi "root"; then
+  : # ok
+else
+  C25_OK=0
+  fail "25c. install --vault / didn't abort with a root-related message — rc=$RC25C out=[$OUT25C]"
+fi
+[ ! -f "$C25C/.second-brain/config.json" ] || { C25_OK=0; fail "25c. config.json written despite --vault / being refused"; }
+
+[ "$C25_OK" -eq 1 ] && pass "25. absolute_path: --vault . resolves to cwd, --vault ../x normalizes without requiring the target to exist, --vault / is refused (F6)"
+
+# =============================================================================
+# Case 26 — `sbm status` reports a hand-edited CLAUDE.md managed block (F7):
+#           when the block's current sha differs from the manifest's stored
+#           "<claude_dir>/CLAUDE.md#block" sha, status lists it under
+#           "edited since the last apply", labeled clearly (not the raw
+#           #block manifest key).
+# =============================================================================
+T26="$TDIR/case26"
+C26="$T26/c"
+H26="$T26/home"
+V26="$T26/vault26"
+mkdir -p "$C26" "$H26"
+OUT26I="$(CLAUDE_HOME="$C26" HOME="$H26" "$SBM" install --yes --vault "$V26" 2>&1)"
+RC26I=$?
+C26_OK=1
+[ "$RC26I" -eq 0 ] || { C26_OK=0; fail "26. setup install failed — out=[$OUT26I]"; }
+
+OUT26CLEAN="$(CLAUDE_HOME="$C26" HOME="$H26" "$SBM" status 2>&1)"
+if printf '%s' "$OUT26CLEAN" | grep -qF "$C26/CLAUDE.md"; then
+  C26_OK=0
+  fail "26. status flags CLAUDE.md as edited BEFORE any hand-edit — out=[$OUT26CLEAN]"
+fi
+
+perl -pi -e 's/(<!-- BEGIN SECOND BRAIN METHOD -->)/$1\n<!-- hand-edited for case 26 -->/' "$C26/CLAUDE.md"
+
+OUT26S="$(CLAUDE_HOME="$C26" HOME="$H26" "$SBM" status 2>&1)"
+RC26S=$?
+[ "$RC26S" -eq 0 ] || { C26_OK=0; fail "26. status exit != 0 after the hand-edit — out=[$OUT26S]"; }
+printf '%s' "$OUT26S" | grep -qF "$C26/CLAUDE.md (managed block)" || { C26_OK=0; fail "26. status doesn't list the hand-edited managed block — out=[$OUT26S]"; }
+
+[ "$C26_OK" -eq 1 ] && pass "26. sbm status lists a hand-edited CLAUDE.md managed block under 'edited since the last apply', labeled '(managed block)' (F7)"
+
+# =============================================================================
+# Case 27 — write paths preserve an existing destination's exact mode (F8):
+#           a dest pre-chmodded 600 stays 600 after both a generic UPDATED
+#           (backup_write) and a CLAUDE.md TAKEN
+#           (_apply_write_preserving_mode).
+# =============================================================================
+T27="$TDIR/case27"
+C27="$T27/c"
+H27="$T27/home"
+V27="$T27/vault27"
+mkdir -p "$C27" "$H27"
+OUT27I="$(CLAUDE_HOME="$C27" HOME="$H27" "$SBM" install --yes --vault "$V27" 2>&1)"
+RC27I=$?
+C27_OK=1
+[ "$RC27I" -eq 0 ] || { C27_OK=0; fail "27. setup install failed — out=[$OUT27I]"; }
+
+chmod 600 "$C27/commands/close.md"
+chmod 600 "$C27/CLAUDE.md"
+
+REPO27="$TDIR/repo-copy-27"
+make_repo_copy "$REPO27"
+printf '\n<!-- engine-side change for test case 27 -->\n' >> "$REPO27/engine/claude/commands/close.md"
+
+OUT27U="$(CLAUDE_HOME="$C27" HOME="$H27" "$REPO27/sbm" update --no-pull 2>&1)"
+RC27U=$?
+[ "$RC27U" -eq 0 ] || { C27_OK=0; fail "27a. update after an engine-side change failed — out=[$OUT27U]"; }
+printf '%s' "$OUT27U" | grep -qE 'updated=1' || { C27_OK=0; fail "27a. summary doesn't show updated=1 — out=[$OUT27U]"; }
+CLOSE_MODE27="$(stat -f '%Lp' "$C27/commands/close.md" 2>/dev/null)"
+[ "$CLOSE_MODE27" = "600" ] || { C27_OK=0; fail "27a. commands/close.md mode changed after UPDATED — got $CLOSE_MODE27, want 600"; }
+
+perl -pi -e 's/(<!-- BEGIN SECOND BRAIN METHOD -->)/$1\n<!-- hand-edited for case 27 -->/' "$C27/CLAUDE.md"
+OUT27T="$(CLAUDE_HOME="$C27" HOME="$H27" "$SBM" update --no-pull --take-new 2>&1)"
+RC27T=$?
+[ "$RC27T" -eq 0 ] || { C27_OK=0; fail "27b. update --take-new after CLAUDE.md hand-edit failed — out=[$OUT27T]"; }
+CLAUDEMD_MODE27="$(stat -f '%Lp' "$C27/CLAUDE.md" 2>/dev/null)"
+[ "$CLAUDEMD_MODE27" = "600" ] || { C27_OK=0; fail "27b. CLAUDE.md mode changed after TAKEN — got $CLAUDEMD_MODE27, want 600"; }
+
+[ "$C27_OK" -eq 1 ] && pass "27. a dest pre-chmodded 600 keeps mode 600 after UPDATED (backup_write) and after CLAUDE.md TAKEN (F8)"
 
 # =============================================================================
 # Summary

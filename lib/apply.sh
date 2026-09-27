@@ -50,13 +50,29 @@
 #
 # The managed BLOCK's content, though, IS tracked — under a dedicated
 # manifest key, "<claude_md_dest>#block" (sha256 of the block's inner
-# content right after the last successful write). That key never collides
-# with §4's removed-file sweep: it lives under $claude_dir/CLAUDE.md, not
-# under any of commands/, agents/, hooks/ or vault/method/, the only
-# prefixes that loop walks. It's what lets a well-formed block distinguish
-# "the user hand-edited the block since the last apply" (CONFLICT, like
-# every other managed file) from "the block is exactly what we installed
-# last time" (safe to replace in place) — see the cmb_rc==0 branch below.
+# content right after the last successful write, computed via
+# lib/claude-md-block.sh's _block_sha — see its header for why that's not
+# just "shasum the extracted block via a bash variable"). That key never
+# collides with §4's removed-file sweep: it lives under $claude_dir/
+# CLAUDE.md, not under any of commands/, agents/, hooks/ or vault/method/,
+# the only prefixes that loop walks. It's what lets a well-formed block
+# distinguish "the user hand-edited the block since the last apply"
+# (CONFLICT, like every other managed file) from "the block is exactly what
+# we installed last time" (safe to replace in place) — see the cmb_rc==0
+# branch below.
+#
+# Design decision — legacy installs with no stored block-sha (F2): an
+# install from before this manifest key existed has no baseline to compare
+# the current block against, so a hand-edit can't be told apart from "never
+# touched". Rather than silently overwrite (the old behavior) or perma-
+# conflict (annoying, and never self-heals), a missing stored sha whose
+# current block differs from what would be rendered now is treated the
+# SAME safe way as a detected hand-edit: back the old block up first, then
+# replace it and record a real sha — reported as TAKEN (with the backup
+# path), not UPDATED, since "silently overwritten your CLAUDE.md block" is
+# exactly the thing every other TAKEN report already means. If the current
+# block already matches what would be rendered, nothing is backed up or
+# rewritten — the sha is simply recorded so future runs have a baseline.
 #
 # Design decision — per-language .md overlay (F3a): for the four
 # translatable families (claude/CLAUDE.md, claude/commands/*.md,
@@ -127,37 +143,39 @@ apply() {
   local claude_md_block_key="${claude_md_dest}#block"
 
   if [ "$cmb_rc" -eq 1 ] && [ -s "$claude_md_dest" ]; then
-    # old-install adoption: foreign content, no markers at all -> conflict
+    # old-install adoption: foreign content, no markers at all -> conflict.
+    # Build "what --take-new would write" ONCE — the user's existing
+    # content with the rendered block appended via claude_md_apply's own
+    # no-marker mechanic — and reuse it both for the plain-conflict .new
+    # preview and for the actual --take-new write, so the preview is never
+    # rebuilt differently from what taking it actually does (F7 in the
+    # brief: the old foreign content must never just be discarded).
+    local nomarker_tmp
+    nomarker_tmp="$(mktemp)" || { echo "apply: mktemp failed" >&2; return 1; }
+    cp -p "$claude_md_dest" "$nomarker_tmp" || { rm -f "$nomarker_tmp"; echo "apply: mktemp copy failed" >&2; return 1; }
+    claude_md_apply "$nomarker_tmp" "$rendered_block_content" \
+      || { rm -f "$nomarker_tmp"; echo "apply: failed to build the managed block preview" >&2; return 1; }
+
     if [ "$take_new" -eq 1 ]; then
       local backup_dest="$backup_root/CLAUDE.md"
-      mkdir -p "$(dirname "$backup_dest")" || { echo "apply: failed to create $(dirname "$backup_dest")" >&2; return 1; }
-      cp -p "$claude_md_dest" "$backup_dest" || { echo "apply: failed to back up $claude_md_dest" >&2; return 1; }
-      # take-new backs up the old (foreign) content above, same as every
-      # other managed file, but then APPENDS the block onto it via
-      # claude_md_apply's own no-marker mechanic instead of rebuilding the
-      # file from empty — the user's existing rules are kept, not
-      # discarded, matching --take-new on a marker-less CLAUDE.md
-      # everywhere else in this tool (see F7 in the brief).
-      claude_md_apply "$claude_md_dest" "$rendered_block_content" \
-        || { echo "apply: failed to write $claude_md_dest" >&2; return 1; }
-      rm -f "$claude_md_dest.new"
+      mkdir -p "$(dirname "$backup_dest")" || { rm -f "$nomarker_tmp"; echo "apply: failed to create $(dirname "$backup_dest")" >&2; return 1; }
+      cp -p "$claude_md_dest" "$backup_dest" || { rm -f "$nomarker_tmp"; echo "apply: failed to back up $claude_md_dest" >&2; return 1; }
+      _apply_write_preserving_mode "$nomarker_tmp" "$claude_md_dest" \
+        || { rm -f "$nomarker_tmp"; return 1; }
+      rm -f "$claude_md_dest.new" "$nomarker_tmp"
       local new_block_sha
-      new_block_sha="$(claude_md_extract_block "$claude_md_dest" | shasum -a 256 | cut -d' ' -f1)"
+      new_block_sha="$(_block_sha "$claude_md_dest")"
       manifest_set "$claude_md_block_key" "$new_block_sha" || return 1
       printf 'TAKEN\t%s\t%s\n' "$claude_md_dest" "$backup_dest"
     else
-      # Plain conflict preview: build the block against an EMPTY file (not
-      # against $claude_md_dest) so .new previews just the block itself,
-      # not the old foreign content — the manifest is left untouched (see
-      # the header's "conflict manifest policy" note).
-      local empty_tmp
-      empty_tmp="$(mktemp)" || { echo "apply: mktemp failed" >&2; return 1; }
-      rm -f "$empty_tmp"
-      : > "$empty_tmp"
-      claude_md_apply "$empty_tmp" "$rendered_block_content" \
-        || { rm -f "$empty_tmp"; echo "apply: failed to build the managed block preview" >&2; return 1; }
-      cp "$empty_tmp" "$claude_md_dest.new" || { rm -f "$empty_tmp"; echo "apply: failed to write $claude_md_dest.new" >&2; return 1; }
-      rm -f "$empty_tmp"
+      # Plain conflict preview: EXACTLY what --take-new would write (the
+      # old foreign content with the block appended once), not the block
+      # alone (see F7 above) — the manifest is left untouched (see the
+      # header's "conflict manifest policy" note). .new gets the mode the
+      # real file would get: $claude_md_dest's own existing mode.
+      _apply_write_preserving_mode "$nomarker_tmp" "$claude_md_dest.new" "$claude_md_dest" \
+        || { rm -f "$nomarker_tmp"; return 1; }
+      rm -f "$nomarker_tmp"
       printf 'CONFLICT\t%s\t%s\n' "$claude_md_dest" "$claude_md_dest.new"
     fi
   elif [ "$cmb_rc" -eq 1 ]; then
@@ -166,34 +184,39 @@ apply() {
       || { echo "apply: failed to write $claude_md_dest" >&2; return 1; }
     rm -f "$claude_md_dest.new"
     local new_block_sha
-    new_block_sha="$(claude_md_extract_block "$claude_md_dest" | shasum -a 256 | cut -d' ' -f1)"
+    new_block_sha="$(_block_sha "$claude_md_dest")"
     manifest_set "$claude_md_block_key" "$new_block_sha" || return 1
     printf 'ADDED\t%s\n' "$claude_md_dest"
   else
     # cmb_rc == 0: well-formed existing block. Detect a hand-edit of the
     # block itself (not the rest of the file, which is always the user's)
-    # by comparing the CURRENT block's sha to the sha recorded after the
-    # last successful write. No stored sha (installs from before this
-    # fix) -> behave as today: replace in place and record the sha going
-    # forward.
-    local current_block current_sha stored_sha
-    current_block="$(claude_md_extract_block "$claude_md_dest")"
-    current_sha="$(printf '%s' "$current_block" | shasum -a 256 | cut -d' ' -f1)"
+    # by comparing the CURRENT block's sha (via _block_sha, byte-exact —
+    # see lib/claude-md-block.sh) to the sha recorded after the last
+    # successful write.
+    local current_sha stored_sha
+    current_sha="$(_block_sha "$claude_md_dest")"
     stored_sha="$(manifest_get "$claude_md_block_key")"
 
     # Build what the file would look like if the block were replaced now —
-    # reused both to check "would this even change anything" and, in the
-    # conflict branch, as the exact content of CLAUDE.md.new / the
-    # take-new replacement (so a conflict's preview is never rebuilt
-    # differently from what --take-new would actually write).
-    local probe_tmp new_block rendered_differs
+    # reused to check "would this even change anything" AND, whichever
+    # branch below fires, as the exact content written/previewed (so a
+    # conflict's preview, a legacy no-baseline replace, and an in-place
+    # update are never rebuilt differently from each other). The "would
+    # this change anything" check itself compares the two extracted blocks
+    # via `cmp` on process substitutions, NOT via bash variable capture
+    # (which strips ALL trailing newlines, not just the single one
+    # extract_block already trims — the same asymmetry _block_sha exists to
+    # avoid, so a hand-edit consisting only of extra blank lines right
+    # before END wouldn't be masked here either).
+    local probe_tmp rendered_differs
     probe_tmp="$(mktemp)" || { echo "apply: mktemp failed" >&2; return 1; }
-    cp "$claude_md_dest" "$probe_tmp" 2>/dev/null || : > "$probe_tmp"
+    cp -p "$claude_md_dest" "$probe_tmp" 2>/dev/null || : > "$probe_tmp"
     claude_md_apply "$probe_tmp" "$rendered_block_content" \
       || { rm -f "$probe_tmp"; echo "apply: failed to build the managed block preview" >&2; return 1; }
-    new_block="$(claude_md_extract_block "$probe_tmp")"
     rendered_differs=1
-    [ "$new_block" = "$current_block" ] && rendered_differs=0
+    if cmp -s <(claude_md_extract_block "$claude_md_dest") <(claude_md_extract_block "$probe_tmp"); then
+      rendered_differs=0
+    fi
 
     if [ -n "$stored_sha" ] && [ "$current_sha" != "$stored_sha" ] && [ "$rendered_differs" -eq 1 ]; then
       # the user hand-edited the block since the last apply, AND the
@@ -203,35 +226,53 @@ apply() {
         local backup_dest="$backup_root/CLAUDE.md"
         mkdir -p "$(dirname "$backup_dest")" || { rm -f "$probe_tmp"; echo "apply: failed to create $(dirname "$backup_dest")" >&2; return 1; }
         cp -p "$claude_md_dest" "$backup_dest" || { rm -f "$probe_tmp"; echo "apply: failed to back up $claude_md_dest" >&2; return 1; }
-        cat "$probe_tmp" > "$claude_md_dest" || { rm -f "$probe_tmp"; echo "apply: failed to write $claude_md_dest" >&2; return 1; }
+        _apply_write_preserving_mode "$probe_tmp" "$claude_md_dest" \
+          || { rm -f "$probe_tmp"; return 1; }
         rm -f "$claude_md_dest.new"
         local new_block_sha
-        new_block_sha="$(claude_md_extract_block "$claude_md_dest" | shasum -a 256 | cut -d' ' -f1)"
+        new_block_sha="$(_block_sha "$claude_md_dest")"
         manifest_set "$claude_md_block_key" "$new_block_sha" || { rm -f "$probe_tmp"; return 1; }
         printf 'TAKEN\t%s\t%s\n' "$claude_md_dest" "$backup_dest"
       else
-        # conflict: dest untouched, .new written; manifest block-key left
-        # exactly as found (same policy as generic files — see header).
-        cp "$probe_tmp" "$claude_md_dest.new" || { rm -f "$probe_tmp"; echo "apply: failed to write $claude_md_dest.new" >&2; return 1; }
+        # conflict: dest untouched, .new written (same mode $claude_md_dest
+        # already has); manifest block-key left exactly as found (same
+        # policy as generic files — see header).
+        _apply_write_preserving_mode "$probe_tmp" "$claude_md_dest.new" "$claude_md_dest" \
+          || { rm -f "$probe_tmp"; return 1; }
         printf 'CONFLICT\t%s\t%s\n' "$claude_md_dest" "$claude_md_dest.new"
       fi
       rm -f "$probe_tmp"
+    elif [ -z "$stored_sha" ] && [ "$rendered_differs" -eq 1 ]; then
+      # Legacy install (predates the block-sha manifest key): no baseline
+      # to tell "hand-edited" from "untouched" apart, so treat it the same
+      # safe way as a detected hand-edit — back the old block up before
+      # replacing it, then record a real sha for every later run (F2 in
+      # the brief). Reported as TAKEN (with the backup path), matching
+      # every other "we didn't just silently overwrite it" report.
+      local backup_dest="$backup_root/CLAUDE.md"
+      mkdir -p "$(dirname "$backup_dest")" || { rm -f "$probe_tmp"; echo "apply: failed to create $(dirname "$backup_dest")" >&2; return 1; }
+      cp -p "$claude_md_dest" "$backup_dest" || { rm -f "$probe_tmp"; echo "apply: failed to back up $claude_md_dest" >&2; return 1; }
+      _apply_write_preserving_mode "$probe_tmp" "$claude_md_dest" \
+        || { rm -f "$probe_tmp"; return 1; }
+      rm -f "$claude_md_dest.new" "$probe_tmp"
+      local new_block_sha
+      new_block_sha="$(_block_sha "$claude_md_dest")"
+      manifest_set "$claude_md_block_key" "$new_block_sha" || return 1
+      printf 'TAKEN\t%s\t%s\n' "$claude_md_dest" "$backup_dest"
     else
-      # unedited block (or no baseline yet), or nothing would actually
-      # change -> safe to replace in place.
-      rm -f "$probe_tmp"
-      local before_copy
-      before_copy="$(mktemp)" || { echo "apply: mktemp failed" >&2; return 1; }
-      cp "$claude_md_dest" "$before_copy" 2>/dev/null || : > "$before_copy"
-      claude_md_apply "$claude_md_dest" "$rendered_block_content" \
-        || { rm -f "$before_copy"; echo "apply: failed to write $claude_md_dest" >&2; return 1; }
-      if ! cmp -s "$before_copy" "$claude_md_dest"; then
+      # Unedited block (stored sha matches current), or no stored sha but
+      # the rendered block wouldn't change anything anyway -> safe to
+      # replace in place. Reuses the probe already built above instead of
+      # running claude_md_apply a second time (F10 in the brief).
+      rm -f "$claude_md_dest.new"
+      if [ "$rendered_differs" -eq 1 ]; then
+        _apply_write_preserving_mode "$probe_tmp" "$claude_md_dest" \
+          || { rm -f "$probe_tmp"; return 1; }
         printf 'UPDATED\t%s\n' "$claude_md_dest"
       fi
-      rm -f "$before_copy"
-      rm -f "$claude_md_dest.new"
+      rm -f "$probe_tmp"
       local new_block_sha
-      new_block_sha="$(claude_md_extract_block "$claude_md_dest" | shasum -a 256 | cut -d' ' -f1)"
+      new_block_sha="$(_block_sha "$claude_md_dest")"
       manifest_set "$claude_md_block_key" "$new_block_sha" || return 1
     fi
   fi
@@ -343,6 +384,38 @@ _apply_src() {
   else
     printf '%s\n' "$engine/$relpath"
   fi
+}
+
+# _apply_write_preserving_mode <src> <write_dest> [<mode_reference_dest>] —
+# atomically writes <src>'s content to <write_dest> (temp file in the same
+# directory + mv, same style as claude_md_apply/backup_write), with the
+# mode <mode_reference_dest> (default: <write_dest> itself) would get per
+# preserve_mode_or_default: its own EXISTING mode when it's already a file
+# on disk, else 0644 (CLAUDE.md and its .new sibling are always plain
+# files, never chmod_x). Passing a different <mode_reference_dest> than
+# <write_dest> is what lets a CLAUDE.md.new preview end up with the mode
+# the REAL file would get, not whatever mktemp/cp would otherwise leave it
+# at (F4/F8 in the brief). Every direct CLAUDE.md write in §1 above goes
+# through this instead of a bare `cp`/`cat >` so none of them can leak a
+# tmp file's mktemp-default 0600.
+_apply_write_preserving_mode() {
+  local src="$1" dest="$2" mode_ref="${3:-$2}" dir mode tmp
+  dir="$(dirname "$dest")"
+  mkdir -p "$dir" || { echo "apply: failed to create $dir" >&2; return 1; }
+  mode="$(preserve_mode_or_default "$mode_ref" 0)"
+  tmp="$(mktemp "$dir/.apply-write.XXXXXX")" || { echo "apply: mktemp failed" >&2; return 1; }
+  if ! cp "$src" "$tmp"; then
+    echo "apply: failed to stage write for $dest" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod "$mode" "$tmp"
+  if ! mv "$tmp" "$dest"; then
+    echo "apply: failed to write $dest" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+  return 0
 }
 
 # _apply_process_file <src> <dest> <menv> <vdisplay> <vshell> <backup_root>
