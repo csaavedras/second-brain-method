@@ -66,7 +66,8 @@ cd second-brain-method
 
 Without flags it asks `Language [en]:` and `Vault path [~/second-brain]:`,
 Enter-through defaults included. To skip the prompts: `./sbm install --yes`,
-or be explicit with `--lang en|es` and `--vault PATH` (accepts `~`). Already
+or be explicit with `--lang en|es` and `--vault PATH` (accepts `~`, and a
+relative path is resolved against your current directory). Already
 installed? `sbm` says so and points you to `./sbm update` instead.
 
 A brand-new or empty vault gets scaffolded (folders, `.gitignore`, a starter
@@ -75,9 +76,18 @@ A brand-new or empty vault gets scaffolded (folders, `.gitignore`, a starter
 a git repo yet). It finishes with a "HOW TO
 START" checklist — see [How to work](#how-to-work).
 
-`./install.sh` still works too, as a thin alias for `./sbm install` — prefer
-`./sbm`. Every subcommand also honors a `CLAUDE_HOME` env var (default
-`~/.claude`), handy to try the method in a sandbox first.
+If the vault path you gave already exists, is non-empty, and looks nothing
+like a second-brain vault (no `method/` or `projects/` folder), install asks
+`[y/N]` before adopting it — `--yes` turns that into a hard abort (nothing
+written) unless you also pass `--force`, which skips the check entirely. A
+folder that already has `method/` or `projects/` is always adopted straight
+away, no prompt.
+
+`./install.sh` still works too, as a thin alias for `./sbm install` — it
+even accepts a bare path as its first argument (`./install.sh <path>`,
+translated to `--vault <path>`) for old bookmarks/docs, but prefer `./sbm`.
+Every subcommand also honors a `CLAUDE_HOME` env var (default `~/.claude`),
+handy to try the method in a sandbox first.
 
 ---
 
@@ -99,8 +109,14 @@ pre-existing file of your own) gets its new version written next to it as
 old one up to `~/.claude/.second-brain/backups/<UTC timestamp>/…`.
 `settings.json` is always merged (your model, theme, plugins and hooks
 stay). `CLAUDE.md`: only the block between the `BEGIN`/`END SECOND BRAIN
-METHOD` markers is managed; an old install with no markers gets a
-`CLAUDE.md.new`; broken markers abort before touching anything.
+METHOD` markers is managed, and it's checksum-tracked too — hand-edit
+*inside* the block and the next update treats it exactly like any other
+edited file (a `CLAUDE.md.new` next to your untouched file; `--take-new`
+backs it up and replaces it); edit outside the block (your own rules) and
+it's always kept. An old install with no markers at all also gets a
+`CLAUDE.md.new` on a plain update — `--take-new` there backs up the file and
+then *appends* the block onto your existing content, so your own rules
+survive. Broken markers abort before touching anything.
 
 Install and update both end with a summary —
 `▸ added=N updated=N conflict=N taken=N deleted=N orphaned=N` —
@@ -139,7 +155,11 @@ Already have a hand-rolled `~/.claude`, or an old version of this method?
 `./sbm install --vault <your existing vault>` — nothing is overwritten.
 Anything of yours that collides comes out as `<file>.new`; `./sbm status`
 lists them all, then merge by hand or `./sbm update --no-pull --take-new`
-to take the method's version everywhere (old files backed up first).
+to take the method's version everywhere (old files backed up first). A
+marker-less `CLAUDE.md` gets the method's block *appended* to it on
+`--take-new`, not replaced — your existing rules stay. If the vault path
+doesn't already have `method/` or `projects/` in it, install will ask before
+adopting it (or refuse outright with `--yes`); pass `--force` to skip that.
 
 ---
 

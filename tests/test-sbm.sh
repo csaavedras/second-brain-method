@@ -323,13 +323,19 @@ BACKUP_CLAUDEMD_FOUND="$(find "$C8/.second-brain/backups" -type f -path '*/CLAUD
 BACKUP_CLOSEMD_FOUND="$(find "$C8/.second-brain/backups" -type f -path '*/commands/close.md' 2>/dev/null | head -1)"
 [ -n "$BACKUP_CLAUDEMD_FOUND" ] || { C8T_OK=0; fail "8b. no backup of the old CLAUDE.md found"; }
 [ -n "$BACKUP_CLOSEMD_FOUND" ] || { C8T_OK=0; fail "8b. no backup of the old commands/close.md found"; }
-grep -qF '<!-- BEGIN SECOND BRAIN METHOD -->' "$C8/CLAUDE.md" 2>/dev/null || { C8T_OK=0; fail "8b. CLAUDE.md missing the managed block after --take-new"; }
-if grep -q 'My old CLAUDE.md\|Some personal rule' "$C8/CLAUDE.md" 2>/dev/null; then
+BLOCK_COUNT8="$(grep -cF '<!-- BEGIN SECOND BRAIN METHOD -->' "$C8/CLAUDE.md" 2>/dev/null || true)"
+[ "$BLOCK_COUNT8" -eq 1 ] || { C8T_OK=0; fail "8b. CLAUDE.md BEGIN marker count != 1 — got $BLOCK_COUNT8"; }
+# F7: --take-new on a marker-less CLAUDE.md backs up the old file (checked
+# above) then APPENDS the block onto it — the user's old foreign content is
+# kept, not discarded (this replaces the old "CLAUDE.md contains ONLY the
+# managed block" expectation, which was the append-instead-of-replace bug
+# in the other direction: it used to discard the user's own rules).
+if ! grep -q 'My old CLAUDE.md' "$C8/CLAUDE.md" 2>/dev/null || ! grep -q 'Some personal rule' "$C8/CLAUDE.md" 2>/dev/null; then
   C8T_OK=0
-  fail "8b. REGRESSION: CLAUDE.md still contains trace of the old foreign content after --take-new"
+  fail "8b. REGRESSION: CLAUDE.md lost the user's old foreign content after --take-new (F7)"
 fi
 
-[ "$C8T_OK" -eq 1 ] && pass "8b. update --take-new: .new files gone, backups exist, CLAUDE.md contains ONLY the managed block (regression test for the append-instead-of-replace bug)"
+[ "$C8T_OK" -eq 1 ] && pass "8b. update --take-new: .new files gone, backups exist, CLAUDE.md keeps the old foreign content with the managed block appended once (F7 regression test)"
 
 # =============================================================================
 # Case 9 — update git-flow: dirty repo aborts, wrong branch aborts,
@@ -359,18 +365,35 @@ else
   else
     CFG9_SHA_BEFORE_A="$(shasum -a 256 "$C9/.second-brain/config.json" | cut -d' ' -f1)"
 
-    # (a) uncommitted change -> update (default, pull) aborts, mentions
-    #     uncommitted changes; nothing else touched.
-    : > "$REPO9/DIRTY_FILE.txt"
+    # (a) uncommitted change to a TRACKED file -> update (default, pull)
+    #     aborts, mentions uncommitted changes; nothing else touched.
+    printf '\n<!-- dirty tracked change for test case 9a -->\n' >> "$REPO9/README.md"
     OUT9A="$(CLAUDE_HOME="$C9" HOME="$H9" "$REPO9/sbm" update 2>&1)"
     RC9A=$?
     CFG9_SHA_AFTER_A="$(shasum -a 256 "$C9/.second-brain/config.json" | cut -d' ' -f1)"
     if [ "$RC9A" -ne 0 ] && printf '%s' "$OUT9A" | grep -qi 'uncommitted' && [ "$CFG9_SHA_BEFORE_A" = "$CFG9_SHA_AFTER_A" ]; then
-      pass "9a. dirty throwaway repo -> update (pull enabled) aborts, mentions uncommitted changes, config untouched"
+      pass "9a. dirty throwaway repo (tracked change) -> update (pull enabled) aborts, mentions uncommitted changes, config untouched"
     else
       fail "9a. dirty-repo gate wrong — rc=$RC9A out=[$OUT9A]"
     fi
-    rm -f "$REPO9/DIRTY_FILE.txt"
+    (cd "$REPO9" && git checkout -q -- README.md)
+
+    # (a2) an UNTRACKED-only file must NOT count as "dirty" (F4: dirty
+    #      check uses --untracked-files=no). It should sail past the dirty
+    #      gate straight to the real `git pull --ff-only` attempt, which
+    #      fails here only because this throwaway repo has no upstream
+    #      tracking branch configured — a different, expected failure, not
+    #      the dirty gate (proven by the absence of "uncommitted" in the
+    #      message, and the presence of the pull-failure message instead).
+    : > "$REPO9/UNTRACKED_ONLY.txt"
+    OUT9A2="$(CLAUDE_HOME="$C9" HOME="$H9" "$REPO9/sbm" update 2>&1)"
+    RC9A2=$?
+    if [ "$RC9A2" -ne 0 ] && ! printf '%s' "$OUT9A2" | grep -qi 'uncommitted' && printf '%s' "$OUT9A2" | grep -qi 'pull'; then
+      pass "9a2. untracked-only file in the repo -> NOT flagged dirty (fails later, at the real git pull, not at the dirty gate)"
+    else
+      fail "9a2. untracked-files=no dirty gate wrong — rc=$RC9A2 out=[$OUT9A2]"
+    fi
+    rm -f "$REPO9/UNTRACKED_ONLY.txt"
 
     # (b) wrong branch -> update aborts, names the branch.
     (cd "$REPO9" && git checkout -q -b feature-branch)
@@ -429,6 +452,30 @@ else
       fi
 
       [ "$D9_OK" -eq 1 ] && pass "9d. real git pull --ff-only applies a VERSION bump; update reports old->new; status shows the new version with no mismatch"
+
+      # (e) F5 regression test: this shell process already `source`d
+      # lib/apply.sh (function bodies are bound at source time, not looked
+      # up again per call) BEFORE any of the git pulls above happened. Add
+      # a sentinel print to apply() in the ORIGINAL repo, commit it, then
+      # `update` (pull enabled) on the CLONE again — the sentinel can only
+      # show up in the report if the update re-exec'd against the freshly
+      # pulled sbm/lib/apply.sh instead of continuing in this already-
+      # running process with its stale, pre-pull apply() still in memory.
+      # >&2: apply()'s stdout is captured into cmd_update's own report_file
+      # and only re-emitted through print_report_summary's fixed set of
+      # recognized status lines (ADDED/UPDATED/.../ORPHANED) — an arbitrary
+      # extra stdout line would be silently swallowed. stderr passes
+      # through untouched, straight into this test's `2>&1` capture.
+      perl -i -pe '$_ = qq(  printf "SBM_REEXEC_SENTINEL\\n" >&2\n) . $_ if /^  rm -f "\$current_dests"$/;' "$REPO9/lib/apply.sh"
+      (cd "$REPO9" && git add -A && git commit -q -m 'add re-exec sentinel to apply() for test 9e')
+
+      OUT9E="$(CLAUDE_HOME="$C9" HOME="$H9" "$REPO9_CLONE/sbm" update 2>&1)"
+      RC9E=$?
+      if [ "$RC9E" -eq 0 ] && printf '%s' "$OUT9E" | grep -qF 'SBM_REEXEC_SENTINEL'; then
+        pass "9e. update (pull enabled) re-execs against the freshly pulled sbm/lib/apply.sh (sentinel added post-pull shows up in this same run)"
+      else
+        fail "9e. re-exec-after-pull regression — rc=$RC9E out=[$OUT9E]"
+      fi
     else
       fail "9d. setup — git clone of the throwaway repo failed: $(cat "$T9/clone.err")"
     fi
@@ -711,7 +758,11 @@ printf '%s' "$OUT12E" | grep -qF 'ok — no .new files, nothing edited since the
 
 # =============================================================================
 # Case 13 — non-empty vault at install time -> scaffold is skipped
-#           entirely, a pre-existing home.md is left byte-identical (F4a)
+#           entirely, a pre-existing home.md is left byte-identical (F4a).
+#           V13 has neither method/ nor projects/, so F2's vault guard
+#           (case 16 below) would otherwise abort it -> --force is required
+#           here (this case is about the scaffold-skip behavior, not the
+#           guard itself).
 # =============================================================================
 T13="$TDIR/case13"
 C13="$T13/c"
@@ -722,7 +773,7 @@ printf 'user file, not the method\n' > "$V13/00-index/user-note.md"
 printf '# My own home\nCustom content, not the method scaffold.\n' > "$V13/00-index/home.md"
 HOME13_BEFORE="$(cat "$V13/00-index/home.md")"
 
-OUT13="$(CLAUDE_HOME="$C13" HOME="$H13" "$SBM" install --yes --vault "$V13" 2>&1)"
+OUT13="$(CLAUDE_HOME="$C13" HOME="$H13" "$SBM" install --yes --force --vault "$V13" 2>&1)"
 RC13=$?
 HOME13_AFTER="$([ -f "$V13/00-index/home.md" ] && cat "$V13/00-index/home.md")"
 
@@ -730,7 +781,7 @@ C13_OK=1
 [ "$RC13" -eq 0 ] || { C13_OK=0; fail "13. install into a non-empty vault exit != 0 — out=[$OUT13]"; }
 [ "$HOME13_BEFORE" = "$HOME13_AFTER" ] || { C13_OK=0; fail "13. pre-existing home.md was modified, expected byte-unchanged"; }
 
-[ "$C13_OK" -eq 1 ] && pass "13. install --yes --vault <non-empty dir>: exit 0, pre-existing 00-index/home.md left byte-identical (scaffold skipped)"
+[ "$C13_OK" -eq 1 ] && pass "13. install --yes --force --vault <non-empty dir>: exit 0, pre-existing 00-index/home.md left byte-identical (scaffold skipped)"
 
 # --- sbm --help advertises --lang en|es -------------------------------------
 OUTHELP="$("$SBM" --help 2>&1)"
@@ -740,6 +791,244 @@ if [ "$RCHELP" -eq 0 ] && printf '%s' "$OUTHELP" | grep -qF -- '--lang en|es'; t
 else
   fail "14. sbm --help doesn't advertise '--lang en|es' — rc=$RCHELP out=[$OUTHELP]"
 fi
+
+# =============================================================================
+# Case 15 — ./install.sh <path> back-compat (F1): first arg not starting
+#           with "-" is translated to --vault <path>, remaining args passed
+#           through.
+# =============================================================================
+T15="$TDIR/case15"
+C15="$T15/c"
+H15="$T15/home"
+V15="$T15/vault15"
+mkdir -p "$C15" "$H15"
+
+OUT15="$(CLAUDE_HOME="$C15" HOME="$H15" "$REPO_ROOT/install.sh" "$V15" --yes 2>&1)"
+RC15=$?
+C15_OK=1
+[ "$RC15" -eq 0 ] || { C15_OK=0; fail "15. ./install.sh <path> --yes exit != 0 — out=[$OUT15]"; }
+[ -d "$V15/method" ] || { C15_OK=0; fail "15. ./install.sh <path> didn't install into <path> — $V15/method missing"; }
+CFG15_VAULT="$(jq -r '.vault' "$C15/.second-brain/config.json" 2>/dev/null)"
+[ "$CFG15_VAULT" = "$V15" ] || { C15_OK=0; fail "15. config vault != given path — got [$CFG15_VAULT] want [$V15]"; }
+
+[ "$C15_OK" -eq 1 ] && pass "15. ./install.sh <path> --yes (back-compat): installs into <path>, remaining flags (--yes) passed through"
+
+# =============================================================================
+# Case 16 — vault guard (F2): a non-empty dir with neither method/ nor
+#           projects/ is refused unless --force; a dir with projects/ is
+#           adopted without asking.
+# =============================================================================
+T16="$TDIR/case16"
+C16A="$T16/c-a"
+H16A="$T16/home-a"
+V16A="$T16/foreign-vault"
+mkdir -p "$C16A" "$H16A" "$V16A"
+printf 'not a vault, just some random file\n' > "$V16A/random.txt"
+
+OUT16A="$(CLAUDE_HOME="$C16A" HOME="$H16A" "$SBM" install --yes --vault "$V16A" 2>&1)"
+RC16A=$?
+C16A_OK=1
+[ "$RC16A" -ne 0 ] || { C16A_OK=0; fail "16a. install --yes into a foreign non-empty vault didn't abort — out=[$OUT16A]"; }
+printf '%s' "$OUT16A" | grep -qF -- '--force' || { C16A_OK=0; fail "16a. abort message doesn't mention --force — out=[$OUT16A]"; }
+[ ! -d "$V16A/method" ] || { C16A_OK=0; fail "16a. vault/method/ was written despite the abort"; }
+[ ! -f "$C16A/.second-brain/config.json" ] || { C16A_OK=0; fail "16a. config.json was written despite the abort"; }
+[ ! -d "$V16A/.git" ] || { C16A_OK=0; fail "16a. vault .git was created despite the abort"; }
+
+[ "$C16A_OK" -eq 1 ] && pass "16a. install --yes into a non-empty, non-vault dir (no method/ or projects/) aborts, mentions --force, nothing written"
+
+OUT16B="$(CLAUDE_HOME="$C16A" HOME="$H16A" "$SBM" install --yes --force --vault "$V16A" 2>&1)"
+RC16B=$?
+C16B_OK=1
+[ "$RC16B" -eq 0 ] || { C16B_OK=0; fail "16b. install --yes --force into the same foreign vault failed — out=[$OUT16B]"; }
+[ -d "$V16A/method" ] || { C16B_OK=0; fail "16b. --force didn't adopt the vault (method/ missing)"; }
+grep -qF 'random file' "$V16A/random.txt" 2>/dev/null || { C16B_OK=0; fail "16b. --force touched the pre-existing random.txt"; }
+
+[ "$C16B_OK" -eq 1 ] && pass "16b. install --yes --force into the same non-vault dir proceeds and adopts it"
+
+C16C="$T16/c-c"
+H16C="$T16/home-c"
+V16C="$T16/real-vault"
+mkdir -p "$C16C" "$H16C" "$V16C/projects"
+printf 'looks like a project\n' > "$V16C/projects/marker.txt"
+OUT16C="$(CLAUDE_HOME="$C16C" HOME="$H16C" "$SBM" install --yes --vault "$V16C" 2>&1)"
+RC16C=$?
+C16C_OK=1
+[ "$RC16C" -eq 0 ] || { C16C_OK=0; fail "16c. install --yes into a dir with projects/ was blocked — out=[$OUT16C]"; }
+[ -f "$V16C/projects/marker.txt" ] || { C16C_OK=0; fail "16c. pre-existing projects/marker.txt lost"; }
+
+[ "$C16C_OK" -eq 1 ] && pass "16c. install --yes into a dir with an existing projects/ folder is adopted without a prompt (no --force needed)"
+
+# =============================================================================
+# Case 17 — a relative --vault path is resolved to an absolute path against
+#           the cwd (F3), stored absolute in config.json.
+# =============================================================================
+T17="$TDIR/case17"
+C17="$T17/c"
+H17="$T17/home"
+CWD17="$T17/somewhere"
+mkdir -p "$C17" "$H17" "$CWD17"
+
+OUT17="$(cd "$CWD17" && CLAUDE_HOME="$C17" HOME="$H17" "$SBM" install --yes --vault "relvault17" 2>&1)"
+RC17=$?
+C17_OK=1
+[ "$RC17" -eq 0 ] || { C17_OK=0; fail "17. install --vault <relative> exit != 0 — out=[$OUT17]"; }
+EXPECTED_V17="$CWD17/relvault17"
+CFG17_VAULT="$(jq -r '.vault' "$C17/.second-brain/config.json" 2>/dev/null)"
+[ "$CFG17_VAULT" = "$EXPECTED_V17" ] || { C17_OK=0; fail "17. config vault not resolved against cwd — got [$CFG17_VAULT] want [$EXPECTED_V17]"; }
+case "$CFG17_VAULT" in
+  /*) : ;;
+  *) C17_OK=0; fail "17. config vault isn't an absolute path: [$CFG17_VAULT]" ;;
+esac
+[ -d "$EXPECTED_V17/method" ] || { C17_OK=0; fail "17. vault wasn't actually created at the resolved absolute path"; }
+
+[ "$C17_OK" -eq 1 ] && pass "17. install --vault <relative path>: resolved to an absolute path against cwd, stored in config.json, vault created there"
+
+# =============================================================================
+# Case 18 — a flag that needs a value ("--lang"/"--vault") as the LAST arg,
+#           or followed by another flag, is a usage error (F9), never a
+#           silent exit.
+# =============================================================================
+T18="$TDIR/case18"
+C18="$T18/c"
+H18="$T18/home"
+mkdir -p "$C18" "$H18"
+
+OUT18A="$(CLAUDE_HOME="$C18" HOME="$H18" "$SBM" install --vault 2>&1)"
+RC18A=$?
+C18_OK=1
+[ "$RC18A" -eq 1 ] || { C18_OK=0; fail "18a. sbm install --vault (no value, last arg) exit != 1 — rc=$RC18A out=[$OUT18A]"; }
+printf '%s' "$OUT18A" | grep -qi -- '--vault' || { C18_OK=0; fail "18a. error message doesn't name --vault — out=[$OUT18A]"; }
+[ ! -f "$C18/.second-brain/config.json" ] || { C18_OK=0; fail "18a. config.json written despite the missing-value error"; }
+
+OUT18B="$(CLAUDE_HOME="$C18" HOME="$H18" "$SBM" install --lang --yes 2>&1)"
+RC18B=$?
+if [ "$RC18B" -eq 1 ] && printf '%s' "$OUT18B" | grep -qi -- '--lang'; then
+  : # ok
+else
+  C18_OK=0
+  fail "18b. sbm install --lang --yes (value looks like a flag) didn't error — rc=$RC18B out=[$OUT18B]"
+fi
+
+[ "$C18_OK" -eq 1 ] && pass "18. --vault/--lang with no usable value (last arg, or followed by another flag) -> usage error, exit 1, never a silent exit"
+
+# =============================================================================
+# Case 19 — installed permissions (F10): 0644 for regular managed files,
+#           0755 for hooks/scripts, regardless of mktemp's 0600 default.
+# =============================================================================
+T19="$TDIR/case19"
+C19="$T19/c"
+H19="$T19/home"
+V19="$T19/vault19"
+mkdir -p "$C19" "$H19"
+OUT19="$(CLAUDE_HOME="$C19" HOME="$H19" "$SBM" install --yes --vault "$V19" 2>&1)"
+RC19=$?
+C19_OK=1
+[ "$RC19" -eq 0 ] || { C19_OK=0; fail "19. setup install failed — out=[$OUT19]"; }
+CMD_MODE19="$(stat -f '%Lp' "$C19/commands/close.md" 2>/dev/null)"
+HOOK_MODE19="$(stat -f '%Lp' "$C19/hooks/check-close.sh" 2>/dev/null)"
+[ "$CMD_MODE19" = "644" ] || { C19_OK=0; fail "19. commands/close.md mode != 644 — got $CMD_MODE19"; }
+[ "$HOOK_MODE19" = "755" ] || { C19_OK=0; fail "19. hooks/check-close.sh mode != 755 — got $HOOK_MODE19"; }
+CLAUDEMD_MODE19="$(stat -f '%Lp' "$C19/CLAUDE.md" 2>/dev/null)"
+[ "$CLAUDEMD_MODE19" = "644" ] || { C19_OK=0; fail "19. new CLAUDE.md mode != 644 — got $CLAUDEMD_MODE19"; }
+
+[ "$C19_OK" -eq 1 ] && pass "19. installed command file + new CLAUDE.md mode 644, hook mode 755 (not mktemp's 0600)"
+
+# =============================================================================
+# Case 20 — CLAUDE.md managed-block edit detection (F6): a hand-edit INSIDE
+#           the block conflicts (.new written, dest untouched); --take-new
+#           backs it up and replaces it; an unedited block updates in place
+#           with no conflict when the engine's rendered block changes.
+# =============================================================================
+T20="$TDIR/case20"
+C20="$T20/c"
+H20="$T20/home"
+V20="$T20/vault20"
+mkdir -p "$C20" "$H20"
+OUT20I="$(CLAUDE_HOME="$C20" HOME="$H20" "$SBM" install --yes --vault "$V20" 2>&1)"
+RC20I=$?
+C20_OK=1
+[ "$RC20I" -eq 0 ] || { C20_OK=0; fail "20. setup install failed — out=[$OUT20I]"; }
+
+perl -pi -e 's/(<!-- BEGIN SECOND BRAIN METHOD -->)/$1\n<!-- hand-edited inside the block, case 20a -->/' "$C20/CLAUDE.md"
+CLAUDEMD20_BEFORE="$(cat "$C20/CLAUDE.md")"
+
+OUT20A="$(CLAUDE_HOME="$C20" HOME="$H20" "$SBM" update --no-pull 2>&1)"
+RC20A=$?
+CLAUDEMD20_AFTER="$(cat "$C20/CLAUDE.md")"
+[ "$RC20A" -eq 0 ] || { C20_OK=0; fail "20a. update after in-block hand-edit exit != 0 — out=[$OUT20A]"; }
+printf '%s' "$OUT20A" | grep -qE 'conflict=1 ' || { C20_OK=0; fail "20a. summary doesn't show conflict=1 — out=[$OUT20A]"; }
+[ -f "$C20/CLAUDE.md.new" ] || { C20_OK=0; fail "20a. CLAUDE.md.new not created"; }
+[ "$CLAUDEMD20_BEFORE" = "$CLAUDEMD20_AFTER" ] || { C20_OK=0; fail "20a. CLAUDE.md was modified, expected byte-unchanged"; }
+if grep -qF 'hand-edited inside the block, case 20a' "$C20/CLAUDE.md.new" 2>/dev/null; then
+  C20_OK=0
+  fail "20a. CLAUDE.md.new still carries the stale hand-edit (should be the fresh render)"
+fi
+
+[ "$C20_OK" -eq 1 ] && pass "20a. hand-edit inside the CLAUDE.md managed block -> update conflict=1, CLAUDE.md.new written, CLAUDE.md byte-unchanged"
+
+OUT20B="$(CLAUDE_HOME="$C20" HOME="$H20" "$SBM" update --no-pull --take-new 2>&1)"
+RC20B=$?
+C20B_OK=1
+[ "$RC20B" -eq 0 ] || { C20B_OK=0; fail "20b. update --take-new exit != 0 — out=[$OUT20B]"; }
+[ ! -f "$C20/CLAUDE.md.new" ] || { C20B_OK=0; fail "20b. CLAUDE.md.new still present after --take-new"; }
+if grep -qF 'hand-edited inside the block, case 20a' "$C20/CLAUDE.md" 2>/dev/null; then
+  C20B_OK=0
+  fail "20b. CLAUDE.md still contains the hand-edit after --take-new"
+fi
+BACKUP20_FOUND="$(find "$C20/.second-brain/backups" -type f -name 'CLAUDE.md' 2>/dev/null | head -1)"
+[ -n "$BACKUP20_FOUND" ] || { C20B_OK=0; fail "20b. no backup of the hand-edited CLAUDE.md found"; }
+grep -qF 'hand-edited inside the block, case 20a' "$BACKUP20_FOUND" 2>/dev/null || { C20B_OK=0; fail "20b. backup doesn't contain the pre-take-new hand-edit"; }
+
+[ "$C20B_OK" -eq 1 ] && pass "20b. update --take-new on a hand-edited block -> TAKEN, old content backed up, block replaced"
+
+REPO20="$TDIR/repo-copy-20"
+make_repo_copy "$REPO20"
+printf '\n<!-- engine-side change for test case 20c -->\n' >> "$REPO20/engine/claude/CLAUDE.md"
+
+OUT20C="$(CLAUDE_HOME="$C20" HOME="$H20" "$REPO20/sbm" update --no-pull 2>&1)"
+RC20C=$?
+C20C_OK=1
+[ "$RC20C" -eq 0 ] || { C20C_OK=0; fail "20c. update after an unedited engine-side CLAUDE.md change exit != 0 — out=[$OUT20C]"; }
+printf '%s' "$OUT20C" | grep -qE 'conflict=0 ' || { C20C_OK=0; fail "20c. summary shows a conflict for an unedited block — out=[$OUT20C]"; }
+[ ! -f "$C20/CLAUDE.md.new" ] || { C20C_OK=0; fail "20c. CLAUDE.md.new unexpectedly created for an unedited block"; }
+grep -qF 'engine-side change for test case 20c' "$C20/CLAUDE.md" 2>/dev/null || { C20C_OK=0; fail "20c. the new engine-side content wasn't applied"; }
+
+[ "$C20C_OK" -eq 1 ] && pass "20c. unedited CLAUDE.md block + an engine-side change -> plain update, no conflict"
+
+# =============================================================================
+# Case 21 — stale .new cleanup (F8): resolving a conflict by hand (copying
+#           .new over dest) makes the next update recognize the file as
+#           already matching, remove the leftover .new, print no spurious
+#           UPDATED for that no-op, and leave `status` clean.
+# =============================================================================
+CONFLICT_DEST21="$MC/commands/close.md"
+printf '\n<!-- hand-edited by test case 21 -->\n' >> "$CONFLICT_DEST21"
+
+OUT21A="$(CLAUDE_HOME="$MC" HOME="$MH" "$SBM" update --no-pull 2>&1)"
+RC21A=$?
+C21_OK=1
+[ "$RC21A" -eq 0 ] || { C21_OK=0; fail "21. setup — update to (re)create the conflict failed — out=[$OUT21A]"; }
+[ -f "$CONFLICT_DEST21.new" ] || { C21_OK=0; fail "21. setup — commands/close.md.new not created"; }
+
+# Resolve by hand: take the rendered .new as-is.
+cp "$CONFLICT_DEST21.new" "$CONFLICT_DEST21"
+rm -f "$CONFLICT_DEST21.new"
+
+OUT21B="$(CLAUDE_HOME="$MC" HOME="$MH" "$SBM" update --no-pull 2>&1)"
+RC21B=$?
+[ "$RC21B" -eq 0 ] || { C21_OK=0; fail "21. update after hand-resolving the conflict exit != 0 — out=[$OUT21B]"; }
+printf '%s' "$OUT21B" | grep -qE 'updated=0 ' || { C21_OK=0; fail "21. no-op resolution reported as updated (spurious UPDATED) — out=[$OUT21B]"; }
+[ ! -f "$CONFLICT_DEST21.new" ] || { C21_OK=0; fail "21. commands/close.md.new leftover after the file already matched"; }
+
+OUT21S="$(CLAUDE_HOME="$MC" HOME="$MH" "$SBM" status 2>&1)"
+RC21S=$?
+[ "$RC21S" -eq 0 ] || { C21_OK=0; fail "21. status after resolution exit != 0 — out=[$OUT21S]"; }
+if printf '%s' "$OUT21S" | grep -qF "$CONFLICT_DEST21"; then
+  C21_OK=0
+  fail "21. status still lists commands/close.md as pending/edited after resolution — out=[$OUT21S]"
+fi
+
+[ "$C21_OK" -eq 1 ] && pass "21. resolving a conflict by copying .new over dest: next update recognizes it as a no-op (no spurious UPDATED), removes the leftover .new, status stops listing it"
 
 # =============================================================================
 # Summary

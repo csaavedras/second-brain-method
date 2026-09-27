@@ -73,13 +73,13 @@ eso.
 
 | Pieza | Se instancia en |
 |---|---|
-| `engine/claude/CLAUDE.md` | `~/.claude/CLAUDE.md` (una vez, vía `./install.sh`) |
-| `engine/claude/commands/start.md` | `~/.claude/commands/start.md` (una vez, vía `./install.sh`) |
-| `engine/claude/commands/close.md` | `~/.claude/commands/close.md` (una vez, vía `./install.sh`) |
-| `engine/claude/commands/learn.md` | `~/.claude/commands/learn.md` (una vez, vía `./install.sh`) |
-| `engine/claude/commands/new-project.md` | `~/.claude/commands/new-project.md` (una vez, vía `./install.sh`) |
-| `engine/claude/commands/kickoff.md` | `~/.claude/commands/kickoff.md` (una vez, vía `./install.sh`) |
-| `engine/claude/commands/gate.md` | `~/.claude/commands/gate.md` (una vez, vía `./install.sh`) |
+| `engine/claude/CLAUDE.md` | `~/.claude/CLAUDE.md` (una vez, vía `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/start.md` | `~/.claude/commands/start.md` (una vez, vía `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/close.md` | `~/.claude/commands/close.md` (una vez, vía `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/learn.md` | `~/.claude/commands/learn.md` (una vez, vía `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/new-project.md` | `~/.claude/commands/new-project.md` (una vez, vía `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/kickoff.md` | `~/.claude/commands/kickoff.md` (una vez, vía `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/gate.md` | `~/.claude/commands/gate.md` (una vez, vía `./sbm install` / `./sbm update`) |
 | `REVIEW-CHECKLIST.template.md` | `<vault>/projects/<project>/review-checklist.md` (por proyecto — lo crea `/learn review` en el primer comentario de MR) |
 | `PROJECT-BRIEF.template.md` | `<vault>/projects/<project>/brief.md` (por proyecto — el **prompt maestro**; lo completa el humano o `/kickoff` pregunta por pregunta) |
 | `scripts/check-close.sh` | `~/.claude/hooks/check-close.sh` + registro en `~/.claude/settings.json` (una vez) |
@@ -107,15 +107,17 @@ completar. Reemplazá todos los `<...>` antes de dar por instalado el método.
 ## 4. Cómo instanciarlo
 
 ### Setup global (una sola vez)
-Corré **`./install.sh [VAULT_PATH]`** desde la raíz del repo. Instala
-`engine/claude/{CLAUDE.md,commands,agents,hooks}` en `~/.claude` (haciendo
-backup de lo que hubiera), fusiona los hooks del método en `settings.json`
-sin pisar tu configuración, crea el vault (carpetas + home + git init), y
-copia `engine/method/` a `<vault>/method/`. Renderiza el marcador de la ruta
+Corré **`./sbm install [--lang en|es] [--vault PATH] [--yes]`** desde la
+raíz del repo (`./install.sh <path>` sigue funcionando como alias de
+compatibilidad). Instala `engine/claude/{CLAUDE.md,commands,agents,hooks}`
+en `~/.claude` (sin pisar nada tuyo — lo que colisiona sale como
+`<file>.new`), fusiona los hooks del método en `settings.json` sin pisar tu
+configuración, crea el vault (carpetas + home + git init), y copia
+`engine/method/` a `<vault>/method/`. Renderiza el marcador de la ruta
 del vault embebido en `CLAUDE.md`, los commands y
 `scripts/{brain-health,brain-metrics}.sh` con la ruta real del vault — no
-completás nada a mano. Configurá el gitignore global para `CLAUDE.local.md`
-aparte:
+completás nada a mano. Actualizá después con **`./sbm update`**. Configurá
+el gitignore global para `CLAUDE.local.md` aparte:
 `git config --global core.excludesFile ~/.gitignore_global` y agregá la
 línea (el instalador imprime este recordatorio al final).
 

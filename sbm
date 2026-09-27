@@ -2,12 +2,16 @@
 # sbm — the Second Brain Method CLI. macOS only, bash 3.2 compatible.
 #
 # Usage:
-#   sbm install [--lang en|es] [--vault PATH] [--yes]
+#   sbm install [--lang en|es] [--vault PATH] [--yes] [--force]
 #   sbm update  [--lang en|es] [--no-pull] [--take-new]
 #   sbm status
 #
 # install: fresh setup, or safe adoption of an existing hand-made ~/.claude
 #          (nothing is clobbered — conflicts are written as <file>.new).
+#          If the resolved vault exists, is non-empty, and looks nothing
+#          like a second-brain vault (no method/ or projects/ folder),
+#          install asks for confirmation (interactive) or aborts (--yes);
+#          --force skips that guard entirely.
 # update:  pulls the configured repo (unless --no-pull) and re-applies,
 #          same never-clobber guarantee; --take-new resolves conflicts by
 #          backing up the old content and taking the new rendered one.
@@ -86,16 +90,33 @@ fi
 LANG_OPT=""
 VAULT_OPT=""
 YES=0
+FORCE=0
 NO_PULL=0
 TAKE_NEW=0
 
+# _SBM_NO_VALUE — sentinel used below via "${2-$_SBM_NO_VALUE}" to tell
+# "no $2 at all" (flag was the last arg) apart from "an empty $2", without
+# tripping `set -u`. A flag that needs a value ("--lang"/"--vault") is a
+# usage error, not a silent exit, when $2 is missing OR looks like another
+# flag ("--something") — see MSG_SBM_FLAG_NEEDS_VALUE below.
+_SBM_NO_VALUE="__sbm_no_value__"
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --lang)      LANG_OPT="${2:-}"; shift 2 ;;
+    --lang)
+      case "${2-$_SBM_NO_VALUE}" in
+        "$_SBM_NO_VALUE"|--*) msg MSG_SBM_FLAG_NEEDS_VALUE "--lang" >&2; exit 1 ;;
+      esac
+      LANG_OPT="$2"; shift 2 ;;
     --lang=*)    LANG_OPT="${1#--lang=}"; shift ;;
-    --vault)     VAULT_OPT="${2:-}"; shift 2 ;;
+    --vault)
+      case "${2-$_SBM_NO_VALUE}" in
+        "$_SBM_NO_VALUE"|--*) msg MSG_SBM_FLAG_NEEDS_VALUE "--vault" >&2; exit 1 ;;
+      esac
+      VAULT_OPT="$2"; shift 2 ;;
     --vault=*)   VAULT_OPT="${1#--vault=}"; shift ;;
     --yes)       YES=1; shift ;;
+    --force)     FORCE=1; shift ;;
     --no-pull)   NO_PULL=1; shift ;;
     --take-new)  TAKE_NEW=1; shift ;;
     *) msg MSG_SBM_UNKNOWN_FLAG "$1" >&2; exit 1 ;;
@@ -158,6 +179,40 @@ EOF
   [ -d "$vault/.git" ] || git -C "$vault" init -q
 }
 
+# vault_looks_foreign <vault> — true (exit 0) when <vault> exists, is
+# non-empty, and has neither a method/ nor a projects/ folder — i.e. it
+# doesn't look like a second-brain vault (fresh or already-adopted) at all.
+# A missing or empty directory, or one that already has method/ or
+# projects/, is fine (exit 1) — scaffold_vault/apply adopt those without
+# asking. Install-only guard (see cmd_install); must run BEFORE
+# scaffold_vault/git init/apply so a "no" leaves nothing written.
+vault_looks_foreign() {
+  local vault="$1"
+  [ -d "$vault" ] || return 1
+  [ -n "$(ls -A "$vault" 2>/dev/null)" ] || return 1
+  if [ -d "$vault/method" ] || [ -d "$vault/projects" ]; then
+    return 1
+  fi
+  return 0
+}
+
+# absolute_path <path> — expands a leading "~" to $HOME, then, if the
+# result isn't already absolute, resolves it against the current working
+# directory (bash 3.2 safe: plain case/parameter expansion, no realpath).
+# Also strips a single trailing "/" (cheap normalization) so stored/
+# rendered vault paths never carry one.
+absolute_path() {
+  local p="${1/#\~/$HOME}"
+  case "$p" in
+    /*) : ;;
+    *)  p="$PWD/$p" ;;
+  esac
+  case "$p" in
+    */) p="${p%/}" ;;
+  esac
+  printf '%s\n' "$p"
+}
+
 # --- report summary helper (used by both install and update) --------------
 print_report_summary() {
   local report_file="$1"
@@ -208,13 +263,26 @@ cmd_install() {
   lang="$LANG_RESOLVED"
 
   if [ -n "$VAULT_OPT" ]; then
-    vault="${VAULT_OPT/#\~/$HOME}"
+    vault="$(absolute_path "$VAULT_OPT")"
   elif [ "$YES" -eq 1 ]; then
     vault="$HOME/second-brain"
   else
     read -r -p "$(msg MSG_SBM_PROMPT_VAULT)" vault || true
     vault="${vault:-$HOME/second-brain}"
-    vault="${vault/#\~/$HOME}"
+    vault="$(absolute_path "$vault")"
+  fi
+
+  if [ "$FORCE" -ne 1 ] && vault_looks_foreign "$vault"; then
+    if [ "$YES" -eq 1 ]; then
+      msg MSG_SBM_VAULT_NOT_A_VAULT "$vault" >&2
+      exit 1
+    fi
+    local vault_ans
+    read -r -p "$(msg MSG_SBM_VAULT_NOT_A_VAULT_PROMPT "$vault")" vault_ans || true
+    case "$vault_ans" in
+      y|Y|yes|Yes|YES) : ;;
+      *) msg MSG_SBM_VAULT_NOT_A_VAULT "$vault" >&2; exit 1 ;;
+    esac
   fi
 
   msg MSG_SBM_METHOD_HEADER "$CLAUDE_DIR"
@@ -250,7 +318,10 @@ cmd_update() {
 
   if [ "$NO_PULL" -ne 1 ]; then
     local dirty branch
-    dirty="$(git -C "$repo" status --porcelain)"
+    # --untracked-files=no: untracked files in the repo checkout (e.g. this
+    # very test harness's scratch files) must never count as "dirty" —
+    # only tracked changes should block a pull.
+    dirty="$(git -C "$repo" status --porcelain --untracked-files=no)"
     if [ -n "$dirty" ]; then
       msg MSG_SBM_REPO_DIRTY "$repo" >&2
       exit 1
@@ -264,8 +335,21 @@ cmd_update() {
       msg MSG_SBM_PULL_FAILED >&2
       exit 1
     fi
-    # VERSION may have changed with the pull.
-    VERSION="$(cat "$repo/VERSION")"
+    # Re-exec against the freshly pulled $repo/sbm (and the libs/engine it
+    # sources) instead of continuing in THIS process: this process already
+    # sourced lib/*.sh (functions are bound at source time, not looked up
+    # again per-call), so if the pull changed apply()'s behavior, only a
+    # fresh process picks it up. --no-pull guards against a loop; env vars
+    # (CLAUDE_HOME/HOME) are inherited as-is by exec.
+    if [ -n "$LANG_OPT" ] && [ "$TAKE_NEW" -eq 1 ]; then
+      exec "$repo/sbm" update --no-pull --lang "$LANG_OPT" --take-new
+    elif [ -n "$LANG_OPT" ]; then
+      exec "$repo/sbm" update --no-pull --lang "$LANG_OPT"
+    elif [ "$TAKE_NEW" -eq 1 ]; then
+      exec "$repo/sbm" update --no-pull --take-new
+    else
+      exec "$repo/sbm" update --no-pull
+    fi
   fi
 
   old_version="$(config_get version)"

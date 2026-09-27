@@ -69,13 +69,13 @@ the team's `CLAUDE.md` if it exists). The method touches none of that.
 
 | Piece | Instantiated in |
 |---|---|
-| `engine/claude/CLAUDE.md` | `~/.claude/CLAUDE.md` (once, via `./install.sh`) |
-| `engine/claude/commands/start.md` | `~/.claude/commands/start.md` (once, via `./install.sh`) |
-| `engine/claude/commands/close.md` | `~/.claude/commands/close.md` (once, via `./install.sh`) |
-| `engine/claude/commands/learn.md` | `~/.claude/commands/learn.md` (once, via `./install.sh`) |
-| `engine/claude/commands/new-project.md` | `~/.claude/commands/new-project.md` (once, via `./install.sh`) |
-| `engine/claude/commands/kickoff.md` | `~/.claude/commands/kickoff.md` (once, via `./install.sh`) |
-| `engine/claude/commands/gate.md` | `~/.claude/commands/gate.md` (once, via `./install.sh`) |
+| `engine/claude/CLAUDE.md` | `~/.claude/CLAUDE.md` (once, via `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/start.md` | `~/.claude/commands/start.md` (once, via `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/close.md` | `~/.claude/commands/close.md` (once, via `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/learn.md` | `~/.claude/commands/learn.md` (once, via `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/new-project.md` | `~/.claude/commands/new-project.md` (once, via `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/kickoff.md` | `~/.claude/commands/kickoff.md` (once, via `./sbm install` / `./sbm update`) |
+| `engine/claude/commands/gate.md` | `~/.claude/commands/gate.md` (once, via `./sbm install` / `./sbm update`) |
 | `REVIEW-CHECKLIST.template.md` | `<vault>/projects/<project>/review-checklist.md` (per project — created by `/learn review` on first MR comment) |
 | `PROJECT-BRIEF.template.md` | `<vault>/projects/<project>/brief.md` (per project — the **master prompt**; filled by the human or by `/kickoff` question by question) |
 | `scripts/check-close.sh` | `~/.claude/hooks/check-close.sh` + registration in `~/.claude/settings.json` (once) |
@@ -103,15 +103,17 @@ in. Replace all the `<...>` before considering the method installed.
 ## 4. How to instantiate it
 
 ### Global setup (only once)
-Run **`./install.sh [VAULT_PATH]`** from the repo root. It installs
-`engine/claude/{CLAUDE.md,commands,agents,hooks}` into `~/.claude` (backing
-up whatever was there), merges the method's hooks into `settings.json`
-without clobbering your config, creates the vault (folders + home + git
-init), and copies `engine/method/` into `<vault>/method/`. It renders the
-vault-path placeholder baked into `CLAUDE.md`, the commands and
+Run **`./sbm install [--lang en|es] [--vault PATH] [--yes]`** from the repo
+root (`./install.sh <path>` still works as a thin back-compat alias). It
+installs `engine/claude/{CLAUDE.md,commands,agents,hooks}` into `~/.claude`
+(never clobbering anything of yours — conflicts land as `<file>.new`),
+merges the method's hooks into `settings.json` without clobbering your
+config, creates the vault (folders + home + git init), and copies
+`engine/method/` into `<vault>/method/`. It renders the vault-path
+placeholder baked into `CLAUDE.md`, the commands and
 `scripts/{brain-health,brain-metrics}.sh` with the real vault path — you
-don't fill in anything by hand. Configure the global gitignore for
-`CLAUDE.local.md` separately:
+don't fill in anything by hand. Upgrade later with **`./sbm update`**.
+Configure the global gitignore for `CLAUDE.local.md` separately:
 `git config --global core.excludesFile ~/.gitignore_global` and add the line
 (the installer prints this reminder at the end).
 

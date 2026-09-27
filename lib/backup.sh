@@ -24,8 +24,12 @@
 #       direct parent still catches the real attack this guards against:
 #       a managed directory (e.g. "commands/") replaced by a symlink.
 #     - <dest> doesn't exist          -> written directly (no backup
-#                                         possible/needed), mode copied
-#                                         from <src_rendered_file>.
+#                                         possible/needed), mode 0644, +x if
+#                                         <src_rendered_file> was executable
+#                                         (0755) — NOT whatever mode the
+#                                         mktemp'd <src_rendered_file>/temp
+#                                         file happened to have (mktemp
+#                                         defaults to 0600).
 #     - <dest> content == src content (byte compare, cmp -s)
 #                                      -> no-op: no backup, no write,
 #                                         return 0.
@@ -35,11 +39,8 @@
 #                                         mode preserved), THEN <dest> is
 #                                         atomically overwritten with
 #                                         <src_rendered_file>'s content,
-#                                         preserving <dest>'s previous
-#                                         executable bit if it had one
-#                                         (other mode bits are left as
-#                                         whatever the atomic temp file
-#                                         got).
+#                                         mode 0644, +x preserved if <dest>
+#                                         previously had it.
 #     - <dest> content differs, <backup_dest_path_or_empty> is empty
 #                                      -> overwritten as above, no backup
 #                                         made.
@@ -52,7 +53,7 @@ utc_timestamp() {
 
 backup_write() {
   local src="$1" dest="$2" backup="$3"
-  local dest_dir backup_dir tmp dest_parent dest_existed src_mode
+  local dest_dir backup_dir tmp dest_parent dest_existed
 
   if [ -z "${src:-}" ] || [ -z "${dest:-}" ]; then
     echo "backup_write: usage: backup_write <src_rendered_file> <dest> <backup_dest_path_or_empty>" >&2
@@ -99,14 +100,20 @@ backup_write() {
     rm -f "$tmp"
     return 1
   fi
+  # mktemp creates $tmp as 0600; `cp` (no -p) on macOS otherwise carries
+  # that restrictive mode straight through to $dest. Force the real target
+  # mode explicitly instead of relying on cp/mktemp defaults: 0644 base,
+  # +x preserved when it should be (0755 for hooks/scripts).
+  chmod 644 "$tmp"
 
   if [ "$dest_existed" -eq 1 ]; then
     if [ -x "$dest" ]; then
       chmod +x "$tmp"
     fi
   else
-    src_mode="$(stat -f '%Lp' "$src" 2>/dev/null)"
-    [ -n "$src_mode" ] && chmod "$src_mode" "$tmp"
+    if [ -x "$src" ]; then
+      chmod +x "$tmp"
+    fi
   fi
 
   if ! mv "$tmp" "$dest"; then

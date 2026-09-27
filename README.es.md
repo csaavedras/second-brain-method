@@ -67,8 +67,8 @@ cd second-brain-method
 Sin flags pregunta `Language [en]:` y `Ruta del vault [~/second-brain]:`
 (Enter acepta el valor por defecto). Para saltear las preguntas:
 `./sbm install --yes`, o indicá todo con `--lang en|es` y `--vault PATH`
-(acepta `~`). Si ya estaba instalado, `sbm` te avisa y te sugiere
-`./sbm update`.
+(acepta `~`, y una ruta relativa se resuelve contra tu directorio actual).
+Si ya estaba instalado, `sbm` te avisa y te sugiere `./sbm update`.
 
 A un vault nuevo o vacío se le arma la estructura (carpetas, `.gitignore`, un
 `00-index/home.md` inicial, su propio `git init`); un vault existente
@@ -76,10 +76,18 @@ mantiene su contenido — solo se agregan los archivos `method/` del método
 (más un `git init` si todavía no es un repo git). Termina con un checklist
 "CÓMO EMPEZAR" — mirá [Cómo trabajar](#cómo-trabajar).
 
-`./install.sh` sigue funcionando como alias de `./sbm install`
-— preferí `./sbm`. Cada subcomando también respeta una variable de entorno
-`CLAUDE_HOME` (por defecto `~/.claude`), útil para probar el método en un
-sandbox primero.
+Si la ruta del vault que diste ya existe, no está vacía, y no parece un
+vault de segundo cerebro (no tiene carpeta `method/` ni `projects/`),
+install te pregunta `[y/N]` antes de adoptarlo — `--yes` convierte eso en un
+abort directo (no se escribe nada) salvo que también pases `--force`, que
+saltea el chequeo por completo. Una carpeta que ya tiene `method/` o
+`projects/` siempre se adopta directo, sin preguntar.
+
+`./install.sh` sigue funcionando como alias de `./sbm install` — hasta
+acepta una ruta como primer argumento (`./install.sh <path>`, se traduce a
+`--vault <path>`) para bookmarks/docs viejos, pero preferí `./sbm`. Cada
+subcomando también respeta una variable de entorno `CLAUDE_HOME` (por
+defecto `~/.claude`), útil para probar el método en un sandbox primero.
 
 ---
 
@@ -102,8 +110,15 @@ su nueva versión escrita al lado como `<file>.new` para mergear a mano;
 `~/.claude/.second-brain/backups/<UTC timestamp>/…`.
 `settings.json` siempre se mergea (tu modelo, tema, plugins y hooks se
 mantienen). `CLAUDE.md`: solo se gestiona el bloque entre los marcadores
-`BEGIN`/`END SECOND BRAIN METHOD`; una instalación vieja sin marcadores
-recibe un `CLAUDE.md.new`; marcadores rotos abortan antes de tocar nada.
+`BEGIN`/`END SECOND BRAIN METHOD`, y también se rastrea por checksum —
+editá a mano *adentro* del bloque y el próximo update lo trata igual que
+cualquier otro archivo editado (un `CLAUDE.md.new` al lado de tu archivo
+intacto; `--take-new` lo respalda y lo reemplaza); editá afuera del bloque
+(tus propias reglas) y eso siempre se conserva. Una instalación vieja sin
+marcadores también recibe un `CLAUDE.md.new` en un update normal —
+`--take-new` ahí respalda el archivo y después *agrega* el bloque a tu
+contenido existente, así que tus propias reglas sobreviven. Marcadores
+rotos abortan antes de tocar nada.
 
 Tanto install como update terminan con un resumen —
 `▸ added=N updated=N conflict=N taken=N deleted=N orphaned=N` —
@@ -146,7 +161,11 @@ método? `./sbm install --vault <tu vault existente>` — no se sobreescribe
 nada. Todo lo tuyo que colisione sale como `<file>.new`; `./sbm status`
 los lista todos, después mergeá a mano o `./sbm update --no-pull
 --take-new` para tomar la versión del método en todos lados (los archivos
-viejos se respaldan primero).
+viejos se respaldan primero). Un `CLAUDE.md` sin marcadores recibe el
+bloque del método *agregado* al final con `--take-new`, no reemplazado —
+tus reglas existentes se mantienen. Si la ruta del vault no tiene todavía
+`method/` ni `projects/`, install te pregunta antes de adoptarla (o
+rechaza directo con `--yes`); pasá `--force` para saltear eso.
 
 ---
 

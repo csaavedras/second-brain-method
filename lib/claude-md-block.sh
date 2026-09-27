@@ -53,6 +53,16 @@
 #                                                  already end in "\n\n").
 #     Returns 0 on success (file written), non-zero on failure (file
 #     untouched).
+#
+#   claude_md_extract_block <file>
+#     Prints just the managed block's inner content (between the BEGIN/END
+#     marker lines, exclusive of the markers themselves and of the single
+#     blank-line-equivalent newline right after BEGIN / right before END —
+#     i.e. the same string shape apply() passes IN as <new_block_content>
+#     to claude_md_apply(), so sha256-ing this output is comparable across
+#     "what's on disk" vs "what we're about to render"). Same marker
+#     semantics as claude_md_has_block(): exit 1 (nothing printed) unless
+#     <file> has exactly one well-ordered BEGIN/END pair.
 
 CLAUDE_MD_BEGIN='<!-- BEGIN SECOND BRAIN METHOD -->'
 CLAUDE_MD_END='<!-- END SECOND BRAIN METHOD -->'
@@ -78,6 +88,33 @@ claude_md_has_block() {
     return 2
   fi
   return 0
+}
+
+claude_md_extract_block() {
+  local file="$1"
+  claude_md_has_block "$file" || return 1
+
+  CMB_FILE="$file" CMB_BEGIN="$CLAUDE_MD_BEGIN" CMB_END="$CLAUDE_MD_END" perl -e '
+    my $file  = $ENV{CMB_FILE};
+    my $begin = $ENV{CMB_BEGIN};
+    my $end   = $ENV{CMB_END};
+
+    open(my $fh, "<", $file) or exit 1;
+    local $/;
+    my $existing = <$fh>;
+    close($fh);
+    $existing = "" unless defined $existing;
+
+    my $bidx = index($existing, $begin);
+    my $eidx = index($existing, $end);
+    exit 1 if $bidx < 0 || $eidx < 0 || $eidx < $bidx;
+
+    my $inner_start = $bidx + length($begin);
+    my $inner = substr($existing, $inner_start, $eidx - $inner_start);
+    $inner =~ s/\A\n//;
+    $inner =~ s/\n\z//;
+    print $inner;
+  '
 }
 
 claude_md_apply() {
@@ -167,6 +204,8 @@ CMB_PERL_EOF
   fi
   rm -f "$errtmp"
 
+  # New file: 0644 (mktemp would leave it 0600). Existing: keep its mode.
+  perm="644"
   if [ "$was_existing" -eq 1 ]; then
     perm="$(stat -f '%Lp' "$file" 2>/dev/null)"
   fi
