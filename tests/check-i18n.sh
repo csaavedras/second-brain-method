@@ -11,11 +11,12 @@
 #    bare MSG_SBM_[A-Z0-9_]+ referenced in ./sbm, has a corresponding key in
 #    en/messages.env, with no dead (unused) keys.
 #
-# The "translatable set" (F3a — per-language .md overlay in lib/apply.sh)
-# is: engine/claude/CLAUDE.md, engine/claude/commands/*.md,
-# engine/claude/agents/*.md, engine/method/*.md. `.sh` files and
-# settings.json are NEVER overlaid (see lib/apply.sh's header) so they are
-# out of scope for checks 3-6 below.
+# The "translatable set" (F3a — per-language .md overlay in lib/apply.sh;
+# F4a — vault/home.md scaffold overlay in sbm's scaffold_vault) is:
+# engine/claude/CLAUDE.md, engine/claude/commands/*.md,
+# engine/claude/agents/*.md, engine/method/*.md, engine/vault/home.md.
+# `.sh` files and settings.json are NEVER overlaid (see lib/apply.sh's
+# header) so they are out of scope for checks 3-6 below.
 #
 # 3. Every translatable file has its pair under engine/i18n/<lang>/<same
 #    relpath>, for every lang != en under engine/i18n/.
@@ -147,6 +148,7 @@ for f in "$REPO_ROOT"/engine/method/*.md; do
   [ -f "$f" ] || continue
   printf 'method/%s\n' "$(basename "$f")" >> "$TRANSLATABLE"
 done
+[ -f "$REPO_ROOT/engine/vault/home.md" ] && printf 'vault/home.md\n' >> "$TRANSLATABLE"
 sort -u -o "$TRANSLATABLE" "$TRANSLATABLE"
 
 # extract_method_version <file> — prints the X.Y from the FIRST

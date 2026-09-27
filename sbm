@@ -2,8 +2,8 @@
 # sbm — the Second Brain Method CLI. macOS only, bash 3.2 compatible.
 #
 # Usage:
-#   sbm install [--lang en] [--vault PATH] [--yes]
-#   sbm update  [--lang en] [--no-pull] [--take-new]
+#   sbm install [--lang en|es] [--vault PATH] [--yes]
+#   sbm update  [--lang en|es] [--no-pull] [--take-new]
 #   sbm status
 #
 # install: fresh setup, or safe adoption of an existing hand-made ~/.claude
@@ -125,9 +125,12 @@ resolve_lang_messages() {
 
 # --- vault scaffold (install-time only; NOT part of apply()) --------------
 # Verbatim port of install.sh step 5 (folders + .gitignore + home.md) plus
-# step 7 (git init), reused as-is per the brief.
+# step 7 (git init), reused as-is per the brief. home.md's frontmatter is
+# generated here (it needs today's date); its body comes from the
+# per-language vault/home.md overlay via _apply_src (F4a) — not tracked by
+# the manifest, scaffolded once, only into a missing/empty vault.
 scaffold_vault() {
-  local vault="$1"
+  local vault="$1" lang="$2"
   if [ ! -d "$vault" ] || [ -z "$(ls -A "$vault" 2>/dev/null)" ]; then
     mkdir -p "$vault"/{projects,learning/til,learning/concept,patterns,briefs,00-index}
 
@@ -139,27 +142,16 @@ scaffold_vault() {
 EOF
 
     if [ ! -f "$vault/00-index/home.md" ]; then
-      cat > "$vault/00-index/home.md" <<EOF
+      {
+        cat <<EOF
 ---
 type: moc
 date: $(date +%Y-%m-%d)
 tags: [meta]
 ---
-# Home — second brain
-
-Entry point of the vault. Structure and rules: \`method/BRAIN.md\`.
-Study capture: \`/learn\`. Each project's state: its
-\`projects/<project>/CONTEXT.md\`.
-
-## Active projects
-- (none yet — run \`/new-project\` in the repo where you'll work)
-
-## Study topics (MOCs)
-- (created when a topic gathers 3+ notes — MOC rule in BRAIN.md)
-
-## Patterns
-- (cross-cutting recipes born from projects — \`patterns/\`)
 EOF
+        cat "$(_apply_src "$ENGINE" "$lang" "vault/home.md")"
+      } > "$vault/00-index/home.md"
     fi
   fi
 
@@ -228,7 +220,7 @@ cmd_install() {
   msg MSG_SBM_METHOD_HEADER "$CLAUDE_DIR"
   msg MSG_SBM_VAULT_HEADER "$vault"
 
-  scaffold_vault "$vault"
+  scaffold_vault "$vault" "$lang"
 
   local report_file
   report_file="$(mktemp)"

@@ -66,6 +66,13 @@ grep -qF '<!-- BEGIN SECOND BRAIN METHOD -->' "$MC/CLAUDE.md" 2>/dev/null || { C
 [ -f "$MVAULT/method/scripts/brain-health.sh" ] || { C1_OK=0; fail "1. vault method/scripts/brain-health.sh missing"; }
 [ -d "$MVAULT/.git" ] || { C1_OK=0; fail "1. vault .git missing"; }
 
+HOME1_MD="$MVAULT/00-index/home.md"
+TODAY1="$(date +%Y-%m-%d)"
+[ -f "$HOME1_MD" ] || { C1_OK=0; fail "1. vault 00-index/home.md missing"; }
+grep -qF 'type: moc' "$HOME1_MD" 2>/dev/null || { C1_OK=0; fail "1. home.md missing 'type: moc'"; }
+grep -qF "date: $TODAY1" "$HOME1_MD" 2>/dev/null || { C1_OK=0; fail "1. home.md missing today's date: line"; }
+grep -qF '# Home — second brain' "$HOME1_MD" 2>/dev/null || { C1_OK=0; fail "1. home.md missing '# Home — second brain' heading"; }
+
 CFG1_VERSION="$(jq -r '.version' "$MC/.second-brain/config.json" 2>/dev/null)"
 CFG1_LANG="$(jq -r '.lang' "$MC/.second-brain/config.json" 2>/dev/null)"
 REPO_VERSION="$(cat "$REPO_ROOT/VERSION")"
@@ -549,11 +556,12 @@ grep -qF 'XX-OVERLAY' "$START_DEST.new" 2>/dev/null || { C11C_OK=0; fail "11c. c
 # --- 11d: check-i18n.sh checks 3-6 against a FULL synthetic xx overlay ----
 build_full_xx_overlay() {
   local repo="$1"
-  mkdir -p "$repo/engine/i18n/xx/claude/commands" "$repo/engine/i18n/xx/claude/agents" "$repo/engine/i18n/xx/method"
+  mkdir -p "$repo/engine/i18n/xx/claude/commands" "$repo/engine/i18n/xx/claude/agents" "$repo/engine/i18n/xx/method" "$repo/engine/i18n/xx/vault"
   cp "$repo/engine/claude/CLAUDE.md" "$repo/engine/i18n/xx/claude/CLAUDE.md"
   cp "$repo"/engine/claude/commands/*.md "$repo/engine/i18n/xx/claude/commands/"
   cp "$repo"/engine/claude/agents/*.md "$repo/engine/i18n/xx/claude/agents/"
   cp "$repo"/engine/method/*.md "$repo/engine/i18n/xx/method/"
+  cp "$repo/engine/vault/home.md" "$repo/engine/i18n/xx/vault/home.md"
 }
 
 REPO11D="$T11/repo-xx-full"
@@ -646,6 +654,12 @@ grep -qF 'Abrí la sesión según el método de trabajo:' "$C12/commands/start.m
 grep -qF '## Estado actual' "$V12/method/CONTEXT.template.md" 2>/dev/null \
   || { C12A_OK=0; fail "12a. vault method/CONTEXT.template.md missing '## Estado actual'"; }
 
+HOME12_MD="$V12/00-index/home.md"
+grep -qF '# Home — segundo cerebro' "$HOME12_MD" 2>/dev/null \
+  || { C12A_OK=0; fail "12a. vault 00-index/home.md missing '# Home — segundo cerebro' heading (es overlay)"; }
+grep -qE '^date:' "$HOME12_MD" 2>/dev/null \
+  || { C12A_OK=0; fail "12a. vault 00-index/home.md missing a date: line"; }
+
 BEGIN_COUNT12="$(grep -cF '<!-- BEGIN SECOND BRAIN METHOD -->' "$C12/CLAUDE.md" 2>/dev/null || true)"
 [ "$BEGIN_COUNT12" -eq 1 ] || { C12A_OK=0; fail "12a. CLAUDE.md BEGIN marker count != 1 — got $BEGIN_COUNT12"; }
 
@@ -694,6 +708,38 @@ C12E_OK=1
 printf '%s' "$OUT12E" | grep -qF 'ok — no .new files, nothing edited since the last apply.' \
   || { C12E_OK=0; fail "12e. status with unknown installed lang didn't fall back to English — out=[$OUT12E]"; }
 [ "$C12E_OK" -eq 1 ] && pass "12e. status with an unknown installed lang (zz) in config.json -> exit 0, English fallback, no crash"
+
+# =============================================================================
+# Case 13 — non-empty vault at install time -> scaffold is skipped
+#           entirely, a pre-existing home.md is left byte-identical (F4a)
+# =============================================================================
+T13="$TDIR/case13"
+C13="$T13/c"
+H13="$T13/home"
+V13="$T13/vault13"
+mkdir -p "$C13" "$H13" "$V13/00-index"
+printf 'user file, not the method\n' > "$V13/00-index/user-note.md"
+printf '# My own home\nCustom content, not the method scaffold.\n' > "$V13/00-index/home.md"
+HOME13_BEFORE="$(cat "$V13/00-index/home.md")"
+
+OUT13="$(CLAUDE_HOME="$C13" HOME="$H13" "$SBM" install --yes --vault "$V13" 2>&1)"
+RC13=$?
+HOME13_AFTER="$([ -f "$V13/00-index/home.md" ] && cat "$V13/00-index/home.md")"
+
+C13_OK=1
+[ "$RC13" -eq 0 ] || { C13_OK=0; fail "13. install into a non-empty vault exit != 0 — out=[$OUT13]"; }
+[ "$HOME13_BEFORE" = "$HOME13_AFTER" ] || { C13_OK=0; fail "13. pre-existing home.md was modified, expected byte-unchanged"; }
+
+[ "$C13_OK" -eq 1 ] && pass "13. install --yes --vault <non-empty dir>: exit 0, pre-existing 00-index/home.md left byte-identical (scaffold skipped)"
+
+# --- sbm --help advertises --lang en|es -------------------------------------
+OUTHELP="$("$SBM" --help 2>&1)"
+RCHELP=$?
+if [ "$RCHELP" -eq 0 ] && printf '%s' "$OUTHELP" | grep -qF -- '--lang en|es'; then
+  pass "14. sbm --help output contains '--lang en|es'"
+else
+  fail "14. sbm --help doesn't advertise '--lang en|es' — rc=$RCHELP out=[$OUTHELP]"
+fi
 
 # =============================================================================
 # Summary

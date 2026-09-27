@@ -1,5 +1,7 @@
 # 🧠 Second Brain for Claude Code
 
+**English** · [Español](README.es.md)
+
 > A working method that gives [Claude Code](https://claude.com/claude-code)
 > persistent memory. Install once and every session **resumes where you left
 > off**, without re-explaining anything. macOS.
@@ -46,7 +48,9 @@ explaining anything**.
 
 - **macOS** (this installer is Mac only).
 - **[Claude Code](https://claude.com/claude-code)** installed (the `claude` CLI).
-- **git** and **jq** — if you don't have jq: `brew install jq`.
+- **git**.
+- **jq** — `brew install jq`.
+- **perl** — ships with macOS, nothing to install.
 - **[Obsidian](https://obsidian.md)** (optional, recommended) to view and
   browse your brain visually.
 
@@ -57,16 +61,85 @@ explaining anything**.
 ```bash
 git clone https://github.com/csaavedras/second-brain-method.git
 cd second-brain-method
-./install.sh
+./sbm install
 ```
 
-That installs the method's commands and creates your vault at `~/second-brain`.
-Want it somewhere else? `./install.sh ~/the/path/you/want`.
+Without flags it asks `Language [en]:` and `Vault path [~/second-brain]:`,
+Enter-through defaults included. To skip the prompts: `./sbm install --yes`,
+or be explicit with `--lang en|es` and `--vault PATH` (accepts `~`). Already
+installed? `sbm` says so and points you to `./sbm update` instead.
 
-The installer **respects your existing configuration**: it backs up what you
-had and only *adds* the method's hooks to your `settings.json`, without
-clobbering your model, theme or plugins. When it finishes it prints the first
-steps.
+A brand-new or empty vault gets scaffolded (folders, `.gitignore`, a starter
+`00-index/home.md`, its own `git init`); an existing vault keeps its content
+— only the method's `method/` files are added (plus a `git init` if it isn't
+a git repo yet). It finishes with a "HOW TO
+START" checklist — see [How to work](#how-to-work).
+
+`./install.sh` still works too, as a thin alias for `./sbm install` — prefer
+`./sbm`. Every subcommand also honors a `CLAUDE_HOME` env var (default
+`~/.claude`), handy to try the method in a sandbox first.
+
+---
+
+## Update
+
+```bash
+./sbm update
+```
+
+By default this pulls (`git pull --ff-only`) the repo you installed from
+(must be on `main`, clean, else `sbm` suggests `--no-pull`), then re-applies
+the method. Flags: `--no-pull` (apply as is), `--take-new` (see below),
+`--lang en|es`.
+
+**Nothing you edited is ever silently overwritten** — every managed file is
+tracked by checksum. Untouched files update in place; an edited file (or a
+pre-existing file of your own) gets its new version written next to it as
+`<file>.new` to merge by hand; `--take-new` replaces it instead, backing the
+old one up to `~/.claude/.second-brain/backups/<UTC timestamp>/…`.
+`settings.json` is always merged (your model, theme, plugins and hooks
+stay). `CLAUDE.md`: only the block between the `BEGIN`/`END SECOND BRAIN
+METHOD` markers is managed; an old install with no markers gets a
+`CLAUDE.md.new`; broken markers abort before touching anything.
+
+Install and update both end with a summary —
+`▸ added=N updated=N conflict=N taken=N deleted=N orphaned=N` —
+where `conflict`/`taken` need your review (`.new` written / replaced with a
+backup) and `deleted`/`orphaned` are files dropped from the method, removed
+if unedited or left in place if you'd edited them.
+
+---
+
+## Status
+
+```bash
+./sbm status
+```
+
+Read-only: installed version, language and vault; warns if this repo's
+version has moved on (`run ./sbm update`); lists any pending `.new` files
+and any managed file edited since the last apply — or, when there's nothing
+to look at, `ok — no .new files, nothing edited since the last apply.`
+
+---
+
+## Language
+
+`en` (English) or `es` (rioplatense voseo Spanish) — set at install, switched
+later with `./sbm update --lang <en|es>`. Translated: `CLAUDE.md`'s block,
+the commands, the agents, the vault's `method/` docs, and `sbm`'s own
+messages; command and file names never change. Language and vault path are
+remembered in `~/.claude/.second-brain/config.json`.
+
+---
+
+## Adopting an existing setup
+
+Already have a hand-rolled `~/.claude`, or an old version of this method?
+`./sbm install --vault <your existing vault>` — nothing is overwritten.
+Anything of yours that collides comes out as `<file>.new`; `./sbm status`
+lists them all, then merge by hand or `./sbm update --no-pull --take-new`
+to take the method's version everywhere (old files backed up first).
 
 ---
 
@@ -110,20 +183,41 @@ included.
 | Command | When | What it does |
 |---|---|---|
 | `/new-project <name>` | When adding a project | Registers it in the brain and anchors the repo |
+| `/kickoff [name] [brief]` | Kicking off a project from a master prompt | Registers the project, saves the brief, derives the brain and proposes a first plan |
 | `/start` | On opening each session | Loads the state and tells you the next step |
 | `/close` | On closing each task and the session | Saves what was done, what's left and why |
 | `/learn [topic]` | When you learn something that outlasts the day | Adds it to your knowledge graph |
+| `/gate` | Before leaving a commit message | Runs the review lenses that fit the diff and gives a READY/NOT-READY verdict |
 
 ---
 
 ## Where everything lives
 
-- The commands and rules: in `~/.claude/` (Claude Code config).
-- Your knowledge: in the **vault** (`~/second-brain` by default) — it's yours,
-  local, and you can version it in your own git repo whenever you want.
+- The commands and rules: in `~/.claude/` (Claude Code config), plus its own
+  state under `~/.claude/.second-brain/` (`config.json`, `manifest.json`,
+  `backups/`).
+- Your knowledge: in the **vault** (`~/second-brain` by default) — it's
+  yours, local, and you can version it in your own git repo.
 
-To uninstall, restore the backup the installer left in `~/.claude/backups/`
-and delete the vault folder if you no longer want it.
+---
+
+## Uninstall
+
+There's no `sbm uninstall` — removing the method is a manual, deliberate
+step so it never takes your vault or your own `~/.claude` customizations
+with it:
+
+```bash
+# every file the method installed (commands, agents, hooks, the vault's method/)
+jq -r 'keys[]' ~/.claude/.second-brain/manifest.json |
+  while IFS= read -r f; do rm -f "$f"; done
+rm -rf ~/.claude/.second-brain/   # the method's own state
+```
+
+Then, by hand: delete the block between the `BEGIN`/`END SECOND BRAIN
+METHOD` markers in `~/.claude/CLAUDE.md`, and remove the method's hook
+entries from `~/.claude/settings.json`. The vault is yours — keep it or
+delete it, independently of the above.
 
 ---
 
