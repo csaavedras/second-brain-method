@@ -61,4 +61,3 @@ con salvedades".
 Reglas: el gate corre sobre el diff **integrado** (después de mergear el
 trabajo de los subagentes), nunca por subagente. El gate en sí no toma
 decisiones de diseño — los hallazgos que impliquen una suben al humano.
-</content>

@@ -50,4 +50,3 @@ enmienda con fecha.
 - Nada de git sin mi aprobación (incluido `git init` si el repo es nuevo).
 - Al terminar, reportá: brief guardado, notas creadas, plan aprobado, y el
   recordatorio de cerrar con /close.
-</content>

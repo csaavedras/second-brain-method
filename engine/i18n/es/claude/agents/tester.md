@@ -39,4 +39,3 @@ Reporte (máx ~30 líneas):
    cumple. Una línea por criterio.
 5. Hallazgos — bugs revelados por los tests (si hubo)
 6. Dudas / bloqueos (si hubo)
-</content>

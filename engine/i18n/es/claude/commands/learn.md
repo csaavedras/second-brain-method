@@ -41,4 +41,3 @@ abajo).
 No toques `projects/` ni ningún CONTEXT.md: esto es captura de conocimiento,
 no estado de proyecto. (Única excepción: `review-checklist.md` en el modo
 `review` de arriba.)
-</content>
