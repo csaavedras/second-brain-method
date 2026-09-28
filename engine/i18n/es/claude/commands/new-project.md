@@ -65,4 +65,3 @@ Vault: `@@VAULT@@`.
 
 Reglas fijas: no toques nada versionado del repo (el método no se impone al
 equipo) y no corras ningún comando git sin aprobación.
-</content>

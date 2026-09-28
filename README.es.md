@@ -268,4 +268,3 @@ vault en `method/README.md` una vez instalado.
 ## Licencia
 
 MIT — usalo, adaptalo y compartilo.
-</content>

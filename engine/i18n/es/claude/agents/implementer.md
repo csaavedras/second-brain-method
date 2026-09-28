@@ -45,4 +45,3 @@ Reporte (máx ~30 líneas):
    criterio.
 5. Hallazgos (si hubo)
 6. Dudas / bloqueos (si hubo)
-</content>

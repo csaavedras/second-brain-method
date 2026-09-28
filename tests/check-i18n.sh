@@ -31,6 +31,11 @@
 #    messages.env must mirror a file in the translatable set (relpath match)
 #    — an i18n file with no English counterpart is never installed by
 #    apply() and is dead weight/a typo.
+# 7. No wrapper artifacts: no file under engine/i18n/ (any lang) and no
+#    README*.md at the repo root has a line that is only a tool/markup
+#    wrapper tag like `<content>` / `</content>` / `<file>` / `<document>`
+#    (an LLM-written file once shipped a trailing `</content>` line in all
+#    of es/claude/** + es/messages.env, which checks 1-6 didn't see).
 #
 # With only en/ present (today), checks 3-6 pass trivially — nothing to
 # compare against yet.
@@ -234,6 +239,22 @@ if [ -z "$ORPHANS" ]; then
   pass "6. no i18n/<lang>/ file lacks an English counterpart in the translatable set"
 else
   fail "6. orphan i18n file(s):$ORPHANS"
+fi
+
+# =============================================================================
+# 7. No stray wrapper-tag lines (e.g. a trailing `</content>`) in i18n files
+#    or root READMEs.
+# =============================================================================
+ARTIFACTS="$(
+  { find "$I18N_ROOT" -type f -print0 2>/dev/null
+    find "$REPO_ROOT" -maxdepth 1 -type f -name 'README*.md' -print0 2>/dev/null
+  } | xargs -0 grep -nE '^[[:space:]]*</?(content|file|document)>[[:space:]]*$' 2>/dev/null
+)"
+if [ -z "$ARTIFACTS" ]; then
+  pass "7. no stray wrapper-tag lines (<content>, </content>, <file>, <document>) in engine/i18n/** or README*.md"
+else
+  fail "7. stray wrapper-tag line(s):
+$ARTIFACTS"
 fi
 
 # =============================================================================

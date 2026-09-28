@@ -44,4 +44,3 @@
 - Modelo y esfuerzo se fijan al abrir; cambiarlos a mitad **invalida el
   caché** → hacelo en el corte `/close`→`/start`. Poda de contexto y detalle
   en `method/MODEL-ROUTING.md`.
-</content>

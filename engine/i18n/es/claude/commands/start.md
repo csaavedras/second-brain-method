@@ -28,4 +28,3 @@ Reportá:
    paso, y por qué
 
 Esperá mi confirmación antes de escribir cualquier archivo.
-</content>

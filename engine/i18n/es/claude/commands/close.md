@@ -74,4 +74,3 @@ El vault (`@@VAULT@@`) es un repo git:
 
 Nota: esto versiona SOLO el vault. Los repos de código de cada proyecto
 tienen su propio git y sus propias reglas (nunca sin aprobación).
-</content>
