@@ -1,10 +1,10 @@
-<!-- method-version: 4.0 — instance of CLAUDE-GLOBAL (thinned: the close
-     detail lives in /close). Source: ~/second-brain/method/ -->
+<!-- method-version: 4.1 — installed by install.sh (thinned: the close
+     detail lives in /close). Source: @@VAULT@@/method/ -->
 
 # Personal working method
 
 ## Brain
-- Vault: `~/second-brain` — all method state lives there.
+- Vault: `@@VAULT@@` — all method state lives there.
 - Current project state: `<vault>/projects/<project>/`; the exact path is
   given by each repo's `CLAUDE.local.md`.
 

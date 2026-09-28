@@ -6,8 +6,8 @@ argument-hint: [project-name]
 Register this project in the working method. Name: $ARGUMENTS
 (if empty, propose one from the current directory and wait for my OK).
 
-Method templates and guides: `~/second-brain/method/`.
-Vault: `~/second-brain`.
+Method templates and guides: `@@VAULT@@/method/`.
+Vault: `@@VAULT@@`.
 
 ## Pre-checks (if any fails, stop and report)
 
@@ -51,7 +51,7 @@ Vault: `~/second-brain`.
 6. If the repo has **dozens or more source files** (where grep no longer
    orients), **offer** to activate Graphify — never impose it or activate it
    without an OK. If I accept: follow the 4 steps of "Activating in a repo"
-   in `~/second-brain/method/GRAPHIFY.md` (keyless AST build,
+   in `@@VAULT@@/method/GRAPHIFY.md` (keyless AST build,
    `.git/info/exclude`, allowlist, section in CLAUDE.local.md). Small repos:
    don't even offer it.
 

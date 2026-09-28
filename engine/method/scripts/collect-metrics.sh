@@ -9,7 +9,7 @@
 set -u
 
 usage() {
-  echo "Usage: collect-metrics.sh <transcript.jsonl> [events.jsonl] [--task T] [--type T] [--estimate E]" >&2
+  printf '@@MSG_COLLECT_USAGE@@\n' >&2
   exit 2
 }
 
@@ -48,7 +48,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -f "$TRANSCRIPT" ] || { echo "ERROR: transcript not found: $TRANSCRIPT" >&2; exit 2; }
+[ -f "$TRANSCRIPT" ] || { printf '@@MSG_COLLECT_ERR_NOT_FOUND@@\n' "$TRANSCRIPT" >&2; exit 2; }
 
 SESSION_ID=$(basename "$TRANSCRIPT" .jsonl)
 TODAY=$(date +%Y-%m-%d)
@@ -173,7 +173,7 @@ RESULT=$(jq -s \
 # Validate our own output before printing — on internal failure, print
 # nothing and fail loudly on stderr only.
 if [ -z "$RESULT" ] || ! printf '%s' "$RESULT" | jq . >/dev/null 2>&1; then
-  echo "ERROR: failed to compute metrics from transcript: $TRANSCRIPT" >&2
+  printf '@@MSG_COLLECT_ERR_FAILED@@\n' "$TRANSCRIPT" >&2
   exit 1
 fi
 

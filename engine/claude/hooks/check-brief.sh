@@ -77,6 +77,7 @@ printf '%s' "$REPORT" | grep -Eq "$VERIF_RE" &&
 printf '%s' "$REPORT" | grep -qi 'criteria evidence' && exit 0
 # ---------------------------------------------------------------------------
 
-jq -n --arg r 'Method brief rule: the subagent report must include a Verification line for each acceptance-criteria command, in EXACTLY this shape: `Verification: `<command>` -> <literal result>` (arrow may be "->" or "→"), plus a "Criteria evidence" section with one line per acceptance criterion. Run the brief'"'"'s acceptance-criteria commands and re-emit the full report.' \
+R=$(printf '@@MSG_BRIEF_BLOCK@@')
+jq -n --arg r "$R" \
   '{decision: "block", reason: $r}'
 exit 0

@@ -35,11 +35,14 @@ fi
 
 REL="~${CONTEXT#$HOME}"
 if [ "$EVENT" = "stop" ]; then
-  jq -n --arg r "Method close rule: the vault's CONTEXT.md ($REL) was not updated in this session. If there was project work, run the /close routine now (~/.claude/commands/close.md): verification, CONTEXT.md, brain, commit message. If the session was read-only and there is nothing to close, say so explicitly and stop." \
+  R=$(printf '@@MSG_CLOSE_STOP_BLOCK@@' "$REL")
+  jq -n --arg r "$R" \
     '{decision: "block", reason: $r}'
 else
-  jq -n --arg m "⚠️ Compacting with CONTEXT.md not updated ($REL) — run /close to persist the state before detail is lost." \
-        --arg c "The conversation is about to be compacted and the vault's CONTEXT.md ($REL) was not updated in this session. Before continuing, persist the state per /close: tasks, decisions, exact starting point for the next session." \
+  M=$(printf '@@MSG_CLOSE_PRECOMPACT_MSG@@' "$REL")
+  C=$(printf '@@MSG_CLOSE_PRECOMPACT_CTX@@' "$REL")
+  jq -n --arg m "$M" \
+        --arg c "$C" \
     '{systemMessage: $m, hookSpecificOutput: {hookEventName: "PreCompact", additionalContext: $c}}'
 fi
 exit 0

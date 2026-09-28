@@ -4,35 +4,40 @@
 # and possible secrets (the vault is synced: never credential values).
 # Usage: brain-health.sh [vault-path]
 set -u
-VAULT="${1:-$HOME/second-brain}"
-[ -d "$VAULT" ] || { echo "ERROR: vault does not exist: $VAULT"; exit 2; }
+VAULT="${1:-@@VAULT@@}"
+[ -d "$VAULT" ] || { printf '@@MSG_HEALTH_ERR_NO_VAULT@@\n' "$VAULT"; exit 2; }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # method/ (the method lives in the vault but is not part of the note graph)
-# and .obsidian/.trash are excluded from the check.
-find "$VAULT" -name '*.md' -type f \
-  -not -path "$VAULT/method/*" \
-  -not -path "$VAULT/.obsidian/*" \
-  -not -path "$VAULT/.trash/*" | sort > "$TMP/files"
+# and .obsidian/.trash are excluded from the check. Filtered with a plain
+# [[ == pattern ]] match (not `find -not -path`): -path treats $VAULT's own
+# content as a glob pattern, so a vault path containing \, [ or * would
+# silently fail to exclude method/. Quoting "$VAULT" inside [[ ... ==
+# pattern ]] makes bash treat its content literally even with glob
+# metacharacters in it; only the unquoted trailing `*` acts as a wildcard.
+find "$VAULT" -name '*.md' -type f 2>/dev/null | while IFS= read -r f; do
+  [[ "$f" == "$VAULT"/method/* || "$f" == "$VAULT"/.obsidian/* || "$f" == "$VAULT"/.trash/* ]] && continue
+  printf '%s\n' "$f"
+done | sort > "$TMP/files"
 sed -E 's|.*/||; s|\.md$||' "$TMP/files" | sort -u > "$TMP/basenames"
 TOTAL=$(wc -l < "$TMP/files" | tr -d ' ')
 
-echo "🧠 brain-health — $VAULT"
-echo "   Notes: $TOTAL"
+printf '@@MSG_HEALTH_HEADER@@\n' "$VAULT"
+printf '@@MSG_HEALTH_NOTES@@\n' "$TOTAL"
 
 # ── 1. Frontmatter: leading --- + type: + date: ────────────────────────────
 : > "$TMP/fm"
 while IFS= read -r f; do
   rel="${f#"$VAULT"/}"
   if ! head -1 "$f" | grep -q '^---$'; then
-    echo "   ✗ no frontmatter: $rel" >> "$TMP/fm"
+    printf '@@MSG_HEALTH_NO_FM@@\n' "$rel" >> "$TMP/fm"
     continue
   fi
   FM=$(awk 'NR==1{next} /^---$/{exit} {print}' "$f")
-  printf '%s\n' "$FM" | grep -q '^type:' || echo "   ✗ no type: $rel" >> "$TMP/fm"
-  printf '%s\n' "$FM" | grep -q '^date:' || echo "   ✗ no date: $rel" >> "$TMP/fm"
+  printf '%s\n' "$FM" | grep -q '^type:' || printf '@@MSG_HEALTH_NO_TYPE@@\n' "$rel" >> "$TMP/fm"
+  printf '%s\n' "$FM" | grep -q '^date:' || printf '@@MSG_HEALTH_NO_DATE@@\n' "$rel" >> "$TMP/fm"
 done < "$TMP/files"
 
 # ── 2. Broken wikilinks: [[target]] with no target.md note in the vault ─────
@@ -44,7 +49,7 @@ while IFS= read -r f; do
   while IFS= read -r target; do
     [ -z "$target" ] && continue
     echo "$target" >> "$TMP/targets"
-    grep -qxF "$target" "$TMP/basenames" || echo "   ✗ [[${target}]] broken in: $rel" >> "$TMP/broken"
+    grep -qxF "$target" "$TMP/basenames" || printf '@@MSG_HEALTH_BROKEN_LINK@@\n' "$target" "$rel" >> "$TMP/broken"
   done
 done < "$TMP/files"
 sort -u "$TMP/targets" -o "$TMP/targets"
@@ -61,21 +66,21 @@ while IFS= read -r f; do
   case "$base" in
     home|hub|CONTEXT|README) continue ;;
   esac
-  grep -qxF "$base" "$TMP/targets" || echo "   ✗ orphan (no incoming links): $rel" >> "$TMP/orphans"
+  grep -qxF "$base" "$TMP/targets" || printf '@@MSG_HEALTH_ORPHAN@@\n' "$rel" >> "$TMP/orphans"
 done < "$TMP/files"
 
 # ── 4. CONTEXT.md over ~150 lines → archive to sessions/ ────────────────────
 : > "$TMP/long"
 while IFS= read -r f; do
   L=$(wc -l < "$f" | tr -d ' ')
-  [ "$L" -gt 150 ] && echo "   ✗ $L lines (archive, ~150 rule): ${f#"$VAULT"/}" >> "$TMP/long"
+  [ "$L" -gt 150 ] && printf '@@MSG_HEALTH_LONG_CONTEXT@@\n' "$L" "${f#"$VAULT"/}" >> "$TMP/long"
 done < <(grep '/CONTEXT\.md$' "$TMP/files")
 
 # ── 5. Possible secrets (only file:line, never the content) ──────────────────
 : > "$TMP/secrets"
 grep -rniE 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9\-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY|(api[_-]?key|secret|token|password)["'"'"' ]*[:=]["'"'"' ]*[A-Za-z0-9_\-]{16,}' \
   --include='*.md' -l "$VAULT" 2>/dev/null | while IFS= read -r f; do
-    echo "   ⚠ possible secret in: ${f#"$VAULT"/} (review by hand)" >> "$TMP/secrets"
+    printf '@@MSG_HEALTH_SECRET@@\n' "${f#"$VAULT"/}" >> "$TMP/secrets"
 done
 
 # ── Report ───────────────────────────────────────────────────────────────────
@@ -91,17 +96,17 @@ report() {  # $1=title $2=file
   fi
 }
 echo
-report "Frontmatter" "$TMP/fm"
-report "Broken wikilinks" "$TMP/broken"
-report "Orphan notes" "$TMP/orphans"
-report "Long CONTEXT.md" "$TMP/long"
-report "Possible secrets" "$TMP/secrets"
+report "$(printf '@@MSG_HEALTH_TITLE_FM@@')" "$TMP/fm"
+report "$(printf '@@MSG_HEALTH_TITLE_BROKEN@@')" "$TMP/broken"
+report "$(printf '@@MSG_HEALTH_TITLE_ORPHANS@@')" "$TMP/orphans"
+report "$(printf '@@MSG_HEALTH_TITLE_LONG@@')" "$TMP/long"
+report "$(printf '@@MSG_HEALTH_TITLE_SECRETS@@')" "$TMP/secrets"
 
 echo
 if [ "$ISSUES" -eq 0 ]; then
-  echo "✅ Healthy vault ($TOTAL notes)"
+  printf '@@MSG_HEALTH_OK@@\n' "$TOTAL"
   exit 0
 else
-  echo "❌ $ISSUES issue(s) — fix before trusting the brain"
+  printf '@@MSG_HEALTH_ISSUES@@\n' "$ISSUES"
   exit 1
 fi

@@ -1,0 +1,566 @@
+#!/bin/bash
+# sbm — the Second Brain Method CLI. macOS only, bash 3.2 compatible.
+#
+# Usage:
+#   sbm install [--lang en|es] [--vault PATH] [--yes] [--force]
+#   sbm update  [--lang en|es] [--no-pull] [--take-new]
+#   sbm status
+#
+# install: fresh setup, or safe adoption of an existing hand-made ~/.claude
+#          (nothing is clobbered — conflicts are written as <file>.new).
+#          If the resolved vault exists, is non-empty, and looks nothing
+#          like a second-brain vault (no method/ or projects/ folder),
+#          install asks for confirmation (interactive) or aborts (--yes);
+#          --force skips that guard entirely.
+# update:  pulls the configured repo (unless --no-pull) and re-applies,
+#          same never-clobber guarantee; --take-new resolves conflicts by
+#          backing up the old content and taking the new rendered one.
+# status:  read-only report: installed version vs this repo's VERSION,
+#          any pending .new files, any file edited since the last apply.
+#
+# See lib/apply.sh for the per-file decision algorithm this drives.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENGINE="$SCRIPT_DIR/engine"
+CLAUDE_DIR="${CLAUDE_HOME:-$HOME/.claude}"
+
+# shellcheck source=lib/render.sh
+source "$SCRIPT_DIR/lib/render.sh"
+# shellcheck source=lib/manifest.sh
+source "$SCRIPT_DIR/lib/manifest.sh"
+# shellcheck source=lib/claude-md-block.sh
+source "$SCRIPT_DIR/lib/claude-md-block.sh"
+# shellcheck source=lib/backup.sh
+source "$SCRIPT_DIR/lib/backup.sh"
+# shellcheck source=lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=lib/settings-merge.sh
+source "$SCRIPT_DIR/lib/settings-merge.sh"
+# shellcheck source=lib/apply.sh
+source "$SCRIPT_DIR/lib/apply.sh"
+
+# --- messages ----------------------------------------------------------
+# Bootstrap in English: the subcommand's own --lang selection happens
+# later, once args are parsed — these pre-flight checks must be able to
+# fail before any language state exists. cmd_install/cmd_update reassign
+# MESSAGES_ENV once the language is resolved, so everything printed after
+# that point (including summaries/next-steps) follows the resolved lang.
+MESSAGES_ENV="$ENGINE/i18n/en/messages.env"
+
+# msg <KEY> [printf-args...] — looks up KEY in $MESSAGES_ENV (same
+# KEY=value convention documented in engine/i18n/en/messages.env's header)
+# and prints it with a trailing newline, treating the value itself as a
+# printf format string (so %s / %% and any embedded \n in the value work
+# exactly like they do once render_file has spliced a MSG_* value into an
+# installed script). This is a plain key lookup, not render_file's
+# @@VAULT@@ substitution — sbm itself is never installed/copied anywhere,
+# it runs straight from the repo checkout.
+msg() {
+  local key="$1"; shift
+  local line val
+  line="$(grep -m1 -- "^${key}=" "$MESSAGES_ENV" 2>/dev/null || true)"
+  if [ -z "$line" ]; then
+    printf 'sbm: missing message key %s in %s\n' "$key" "$MESSAGES_ENV" >&2
+    exit 1
+  fi
+  val="${line#*=}"
+  # shellcheck disable=SC2059
+  printf -- "$val\n" "$@"
+}
+
+# --- dependency / environment checks -------------------------------------
+[ "$(uname)" = "Darwin" ] || { msg MSG_SBM_NOT_DARWIN >&2; exit 1; }
+[ -d "$ENGINE" ] || { msg MSG_SBM_NO_ENGINE >&2; exit 1; }
+command -v git    >/dev/null || { msg MSG_SBM_MISSING_DEP "git"    "brew install git"  >&2; exit 1; }
+command -v jq     >/dev/null || { msg MSG_SBM_MISSING_DEP "jq"     "brew install jq"   >&2; exit 1; }
+command -v perl   >/dev/null || { msg MSG_SBM_MISSING_DEP "perl"   "brew install perl" >&2; exit 1; }
+command -v shasum >/dev/null || { msg MSG_SBM_MISSING_DEP "shasum" "brew install perl" >&2; exit 1; }
+command -v claude >/dev/null || msg MSG_SBM_MISSING_CLAUDE_CLI
+
+VERSION="$(cat "$SCRIPT_DIR/VERSION")"
+
+# --- args ------------------------------------------------------------------
+SUBCOMMAND=""
+if [ $# -gt 0 ]; then
+  SUBCOMMAND="$1"
+  shift
+fi
+
+LANG_OPT=""
+VAULT_OPT=""
+YES=0
+FORCE=0
+NO_PULL=0
+TAKE_NEW=0
+
+# _SBM_NO_VALUE — sentinel used below via "${2-$_SBM_NO_VALUE}" to tell
+# "no $2 at all" (flag was the last arg) apart from "an empty $2", without
+# tripping `set -u`. A flag that needs a value ("--lang"/"--vault") is a
+# usage error, not a silent exit, when $2 is missing OR looks like another
+# flag ("--something") — see MSG_SBM_FLAG_NEEDS_VALUE below.
+_SBM_NO_VALUE="__sbm_no_value__"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --lang)
+      case "${2-$_SBM_NO_VALUE}" in
+        "$_SBM_NO_VALUE"|--*) msg MSG_SBM_FLAG_NEEDS_VALUE "--lang" >&2; exit 1 ;;
+      esac
+      LANG_OPT="$2"; shift 2 ;;
+    --lang=*)    LANG_OPT="${1#--lang=}"; shift ;;
+    --vault)
+      case "${2-$_SBM_NO_VALUE}" in
+        "$_SBM_NO_VALUE"|--*) msg MSG_SBM_FLAG_NEEDS_VALUE "--vault" >&2; exit 1 ;;
+      esac
+      VAULT_OPT="$2"; shift 2 ;;
+    --vault=*)   VAULT_OPT="${1#--vault=}"; shift ;;
+    --yes)       YES=1; shift ;;
+    --force)     FORCE=1; shift ;;
+    --no-pull)   NO_PULL=1; shift ;;
+    --take-new)  TAKE_NEW=1; shift ;;
+    *) msg MSG_SBM_UNKNOWN_FLAG "$1" >&2; exit 1 ;;
+  esac
+done
+
+# resolve_lang_messages <requested> — sets LANG_RESOLVED and (re)points the
+# global MESSAGES_ENV at engine/i18n/<requested>/messages.env; exits 1 with
+# a clear message (naming the available languages) if that file doesn't
+# exist, instead of letting render_file/jq/perl fail with a raw
+# file-not-found further down the line.
+resolve_lang_messages() {
+  local requested="$1" path avail d
+  path="$ENGINE/i18n/$requested/messages.env"
+  if [ ! -f "$path" ]; then
+    avail=""
+    for d in "$ENGINE"/i18n/*/; do
+      [ -d "$d" ] || continue
+      avail="$avail $(basename "$d")"
+    done
+    msg MSG_SBM_LANG_UNAVAILABLE "$requested" "${avail# }" >&2
+    exit 1
+  fi
+  LANG_RESOLVED="$requested"
+  MESSAGES_ENV="$path"
+}
+
+# dir_has_visible_entries <dir> — true (exit 0) when <dir> exists and
+# contains at least one entry NOT starting with "." (bash 3.2 safe glob, no
+# `ls -A` — `ls -A` lists dotfiles too, which made a vault whose only
+# entries are things like .git/, .obsidian/ or .DS_Store count as "non-
+# empty" for both the vault guard and scaffold_vault below, when it should
+# be treated the same as a genuinely empty directory). Relies on the
+# unquoted glob NOT matching and expanding to the literal pattern string
+# when nothing matches (standard bash behavior without nullglob) — that
+# literal string is never an existing path, so the `-e` test correctly
+# reports "nothing found".
+dir_has_visible_entries() {
+  local dir="$1" entry
+  [ -d "$dir" ] || return 1
+  for entry in "$dir"/*; do
+    [ -e "$entry" ] && return 0
+  done
+  return 1
+}
+
+# --- vault scaffold (install-time only; NOT part of apply()) --------------
+# Verbatim port of install.sh step 5 (folders + .gitignore + home.md) plus
+# step 7 (git init), reused as-is per the brief. home.md's frontmatter is
+# generated here (it needs today's date); its body comes from the
+# per-language vault/home.md overlay via _apply_src (F4a) — not tracked by
+# the manifest, scaffolded once, only into a missing/empty vault (a vault
+# containing only dotfiles/dot-dirs counts as empty here too — see
+# dir_has_visible_entries above).
+scaffold_vault() {
+  local vault="$1" lang="$2"
+  if [ ! -d "$vault" ] || ! dir_has_visible_entries "$vault"; then
+    mkdir -p "$vault"/{projects,learning/til,learning/concept,patterns,briefs,00-index}
+
+    cat > "$vault/.gitignore" <<'EOF'
+.DS_Store
+.trash/
+.obsidian/workspace*
+.obsidian/cache
+EOF
+
+    if [ ! -f "$vault/00-index/home.md" ]; then
+      {
+        cat <<EOF
+---
+type: moc
+date: $(date +%Y-%m-%d)
+tags: [meta]
+---
+EOF
+        cat "$(_apply_src "$ENGINE" "$lang" "vault/home.md")"
+      } > "$vault/00-index/home.md"
+    fi
+  fi
+
+  [ -d "$vault/.git" ] || git -C "$vault" init -q
+}
+
+# vault_looks_foreign <vault> — true (exit 0) when <vault> exists, is
+# non-empty (see dir_has_visible_entries — dotfiles/dot-dirs alone don't
+# count), and has neither a method/ nor a projects/ folder — i.e. it
+# doesn't look like a second-brain vault (fresh or already-adopted) at all.
+# A missing or empty directory, or one that already has method/ or
+# projects/, is fine (exit 1) — scaffold_vault/apply adopt those without
+# asking. Install-only guard (see cmd_install); must run BEFORE
+# scaffold_vault/git init/apply so a "no" leaves nothing written.
+vault_looks_foreign() {
+  local vault="$1"
+  [ -d "$vault" ] || return 1
+  dir_has_visible_entries "$vault" || return 1
+  if [ -d "$vault/method" ] || [ -d "$vault/projects" ]; then
+    return 1
+  fi
+  return 0
+}
+
+# absolute_path <path> — resolves <path> to an absolute, lexically
+# normalized path (bash 3.2 safe: plain case/parameter expansion + a manual
+# "." / ".." walk, no realpath — the vault this is most often called for
+# may not exist yet, so an existence-based resolution isn't an option).
+# A leading "~" or "~/..." expands to $HOME; a leading "~someuser..." isn't
+# supported (no dependency-free way to look up another user's home
+# directory in bash 3.2) and is a hard error naming the unsupported form,
+# instead of silently treating "~someuser" as a literal path segment. A
+# path that isn't already absolute is resolved against the current working
+# directory first (plain string concatenation), then "." segments are
+# dropped and ".." segments pop the previous kept segment (never past the
+# root) — so both "." and "../x" normalize without requiring the target to
+# exist. A result of exactly "/" is refused: the method must never treat
+# the filesystem root as a vault.
+absolute_path() {
+  local p="$1"
+
+  case "$p" in
+    "~") p="$HOME" ;;
+    "~/"*) p="$HOME/${p#\~/}" ;;
+    "~"*)
+      msg MSG_SBM_VAULT_TILDE_USER_UNSUPPORTED "$p" >&2
+      exit 1
+      ;;
+  esac
+
+  case "$p" in
+    /*) : ;;
+    *)  p="$PWD/$p" ;;
+  esac
+
+  local old_ifs="$IFS" seg
+  local -a segs=()
+  local -a kept=()
+  IFS='/'
+  # shellcheck disable=SC2086 disable=SC2231
+  set -f
+  for seg in $p; do
+    segs+=("$seg")
+  done
+  set +f
+  IFS="$old_ifs"
+
+  for seg in "${segs[@]+"${segs[@]}"}"; do
+    case "$seg" in
+      ""|".") : ;;
+      "..")
+        if [ "${#kept[@]}" -gt 0 ]; then
+          unset "kept[$((${#kept[@]} - 1))]"
+        fi
+        ;;
+      *) kept+=("$seg") ;;
+    esac
+  done
+
+  local result="/"
+  if [ "${#kept[@]}" -gt 0 ]; then
+    result="$(printf '/%s' "${kept[@]}")"
+  fi
+
+  if [ "$result" = "/" ]; then
+    msg MSG_SBM_VAULT_ROOT_REFUSED >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$result"
+}
+
+# --- report summary helper (used by both install and update) --------------
+print_report_summary() {
+  local report_file="$1"
+  local added updated conflict taken deleted orphaned
+
+  added="$(grep -c $'^ADDED\t'    "$report_file" || true)"
+  updated="$(grep -c $'^UPDATED\t'  "$report_file" || true)"
+  conflict="$(grep -c $'^CONFLICT\t' "$report_file" || true)"
+  taken="$(grep -c $'^TAKEN\t'    "$report_file" || true)"
+  deleted="$(grep -c $'^DELETED\t'  "$report_file" || true)"
+  orphaned="$(grep -c $'^ORPHANED\t' "$report_file" || true)"
+
+  msg MSG_SBM_SUMMARY_COUNTS "$added" "$updated" "$conflict" "$taken" "$deleted" "$orphaned"
+
+  if [ "$conflict" -gt 0 ] || [ "$taken" -gt 0 ]; then
+    msg MSG_SBM_CONFLICT_LIST_HDR
+    grep -E $'^(CONFLICT|TAKEN)\t' "$report_file" | while IFS=$'\t' read -r status dest extra; do
+      msg MSG_SBM_CONFLICT_LINE "$status" "$dest" "$extra"
+    done
+  fi
+
+  if [ "$deleted" -gt 0 ] || [ "$orphaned" -gt 0 ]; then
+    msg MSG_SBM_REMOVED_LIST_HDR
+    grep -E $'^(DELETED|ORPHANED)\t' "$report_file" | while IFS=$'\t' read -r status dest _; do
+      msg MSG_SBM_REMOVED_LINE "$status" "$dest"
+    done
+  fi
+}
+
+# --- subcommands -----------------------------------------------------------
+
+cmd_install() {
+  if config_exists; then
+    msg MSG_SBM_ALREADY_INSTALLED >&2
+    exit 1
+  fi
+
+  local lang vault
+  if [ -n "$LANG_OPT" ]; then
+    lang="$LANG_OPT"
+  elif [ "$YES" -eq 1 ]; then
+    lang="en"
+  else
+    read -r -p "$(msg MSG_SBM_PROMPT_LANG)" lang || true
+    lang="${lang:-en}"
+  fi
+  resolve_lang_messages "$lang"
+  lang="$LANG_RESOLVED"
+
+  if [ -n "$VAULT_OPT" ]; then
+    vault="$(absolute_path "$VAULT_OPT")"
+  elif [ "$YES" -eq 1 ]; then
+    vault="$HOME/second-brain"
+  else
+    read -r -p "$(msg MSG_SBM_PROMPT_VAULT)" vault || true
+    vault="${vault:-$HOME/second-brain}"
+    vault="$(absolute_path "$vault")"
+  fi
+
+  if [ "$FORCE" -ne 1 ] && vault_looks_foreign "$vault"; then
+    if [ "$YES" -eq 1 ]; then
+      msg MSG_SBM_VAULT_NOT_A_VAULT "$vault" >&2
+      exit 1
+    fi
+    local vault_ans
+    read -r -p "$(msg MSG_SBM_VAULT_NOT_A_VAULT_PROMPT "$vault")" vault_ans || true
+    case "$vault_ans" in
+      y|Y|yes|Yes|YES) : ;;
+      *) msg MSG_SBM_VAULT_NOT_A_VAULT "$vault" >&2; exit 1 ;;
+    esac
+  fi
+
+  msg MSG_SBM_METHOD_HEADER "$CLAUDE_DIR"
+  msg MSG_SBM_VAULT_HEADER "$vault"
+
+  scaffold_vault "$vault" "$lang"
+
+  local report_file
+  report_file="$(mktemp)"
+  if ! apply "$lang" "$CLAUDE_DIR" "$vault" > "$report_file"; then
+    rm -f "$report_file"
+    msg MSG_SBM_APPLY_FAILED >&2
+    exit 1
+  fi
+
+  config_write "$VERSION" "$lang" "$vault" "$SCRIPT_DIR" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  print_report_summary "$report_file"
+  rm -f "$report_file"
+
+  msg MSG_SBM_INSTALL_DONE "$vault"
+  msg MSG_SBM_NEXT_STEPS "$vault"
+}
+
+cmd_update() {
+  if ! config_exists; then
+    msg MSG_SBM_NOT_INSTALLED >&2
+    exit 1
+  fi
+
+  local repo old_version lang vault installed_at
+  repo="$(config_get repo)"
+
+  if [ "$NO_PULL" -ne 1 ]; then
+    local dirty branch
+    # --untracked-files=no: untracked files in the repo checkout (e.g. this
+    # very test harness's scratch files) must never count as "dirty" —
+    # only tracked changes should block a pull.
+    dirty="$(git -C "$repo" status --porcelain --untracked-files=no)"
+    if [ -n "$dirty" ]; then
+      msg MSG_SBM_REPO_DIRTY "$repo" >&2
+      exit 1
+    fi
+    branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD)"
+    if [ "$branch" != "main" ]; then
+      msg MSG_SBM_REPO_NOT_MAIN "$branch" >&2
+      exit 1
+    fi
+    if ! git -C "$repo" pull --ff-only; then
+      msg MSG_SBM_PULL_FAILED >&2
+      exit 1
+    fi
+    # Re-exec against the freshly pulled $repo/sbm (and the libs/engine it
+    # sources) instead of continuing in THIS process: this process already
+    # sourced lib/*.sh (functions are bound at source time, not looked up
+    # again per-call), so if the pull changed apply()'s behavior, only a
+    # fresh process picks it up. --no-pull guards against a loop; env vars
+    # (CLAUDE_HOME/HOME) are inherited as-is by exec. Args array instead of
+    # an if/elif chain per flag combination (set -u safe on bash 3.2: the
+    # array always has at least "update" and "--no-pull" in it, so
+    # "${re_exec_args[@]}" is never expanded empty).
+    local -a re_exec_args=(update --no-pull)
+    [ -n "$LANG_OPT" ] && re_exec_args+=(--lang "$LANG_OPT")
+    [ "$TAKE_NEW" -eq 1 ] && re_exec_args+=(--take-new)
+    exec "$repo/sbm" "${re_exec_args[@]}"
+  fi
+
+  old_version="$(config_get version)"
+
+  if [ -n "$LANG_OPT" ]; then
+    lang="$LANG_OPT"
+  else
+    lang="$(config_get lang)"
+  fi
+  resolve_lang_messages "$lang"
+  lang="$LANG_RESOLVED"
+
+  vault="$(config_get vault)"
+  installed_at="$(config_get installed_at)"
+
+  local report_file
+  report_file="$(mktemp)"
+  local rc=0
+  if [ "$TAKE_NEW" -eq 1 ]; then
+    apply "$lang" "$CLAUDE_DIR" "$vault" --take-new > "$report_file" || rc=$?
+  else
+    apply "$lang" "$CLAUDE_DIR" "$vault" > "$report_file" || rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$report_file"
+    msg MSG_SBM_APPLY_FAILED >&2
+    exit 1
+  fi
+
+  # Preserves the ORIGINAL installed_at (means "first installed", not
+  # "last updated") — config_write always takes the full row, so we must
+  # pass it back through unchanged here.
+  config_write "$VERSION" "$lang" "$vault" "$repo" "$installed_at"
+
+  msg MSG_SBM_UPDATE_VERSION_LINE "$old_version" "$VERSION"
+  print_report_summary "$report_file"
+  rm -f "$report_file"
+
+  msg MSG_SBM_UPDATE_DONE
+}
+
+cmd_status() {
+  if ! config_exists; then
+    msg MSG_SBM_NOT_INSTALLED >&2
+    exit 1
+  fi
+
+  local inst_version inst_lang inst_vault
+  inst_version="$(config_get version)"
+  inst_lang="$(config_get lang)"
+  inst_vault="$(config_get vault)"
+
+  # Speak the installed language if this checkout has it; else stay English
+  # (never fail status over a missing/renamed language).
+  if [ -f "$ENGINE/i18n/$inst_lang/messages.env" ]; then
+    MESSAGES_ENV="$ENGINE/i18n/$inst_lang/messages.env"
+  fi
+
+  msg MSG_SBM_STATUS_HEADER
+  msg MSG_SBM_STATUS_VERSION_LINE "$inst_version" "$inst_lang" "$inst_vault"
+  if [ "$inst_version" != "$VERSION" ]; then
+    msg MSG_SBM_STATUS_VERSION_MISMATCH "$inst_version" "$VERSION"
+  fi
+
+  local new_files
+  new_files="$(
+    { find "$CLAUDE_DIR/commands" "$CLAUDE_DIR/agents" "$CLAUDE_DIR/hooks" "$inst_vault/method" \
+        -name '*.new' 2>/dev/null || true
+      if [ -f "$CLAUDE_DIR/CLAUDE.md.new" ]; then printf '%s\n' "$CLAUDE_DIR/CLAUDE.md.new"; fi
+    } | sort
+  )"
+
+  local mpath key msha csha edited_list claude_md_dest claude_md_block_key entry
+  mpath="$(manifest_path)"
+  edited_list=""
+  claude_md_dest="$CLAUDE_DIR/CLAUDE.md"
+  claude_md_block_key="${claude_md_dest}#block"
+  if [ -f "$mpath" ]; then
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+
+      if [ "$key" = "$claude_md_block_key" ]; then
+        # The managed block's key isn't a real path ("...CLAUDE.md#block"),
+        # so it needs its own comparison: hash the CURRENT block (only
+        # meaningful when CLAUDE.md still has a well-formed block — a
+        # missing/corrupt file just means nothing to report here, same as
+        # any other key whose path vanished) and compare it to the stored
+        # sha via the same _block_sha helper apply() uses (F5/F6 in the
+        # brief), labeling it clearly instead of printing the raw #block
+        # key.
+        msha="$(manifest_get "$key")"
+        [ -n "$msha" ] || continue
+        claude_md_has_block "$claude_md_dest" || continue
+        csha="$(_block_sha "$claude_md_dest")"
+        if [ "$msha" != "$csha" ]; then
+          entry="$claude_md_dest (managed block)"
+          if [ -z "$edited_list" ]; then
+            edited_list="$entry"
+          else
+            edited_list="$edited_list
+$entry"
+          fi
+        fi
+        continue
+      fi
+
+      [ -f "$key" ] || continue
+      msha="$(manifest_get "$key")"
+      csha="$(manifest_sha256 "$key")"
+      if [ "$msha" != "$csha" ]; then
+        if [ -z "$edited_list" ]; then
+          edited_list="$key"
+        else
+          edited_list="$edited_list
+$key"
+        fi
+      fi
+    done < <(jq -r 'keys[]' "$mpath")
+  fi
+
+  if [ -z "$new_files" ] && [ -z "$edited_list" ]; then
+    msg MSG_SBM_STATUS_CLEAN
+  else
+    if [ -n "$new_files" ]; then
+      msg MSG_SBM_STATUS_NEW_FILES_HDR
+      printf '%s\n' "$new_files" | while IFS= read -r f; do printf '     %s\n' "$f"; done
+    fi
+    if [ -n "$edited_list" ]; then
+      msg MSG_SBM_STATUS_EDITED_FILES_HDR
+      printf '%s\n' "$edited_list" | while IFS= read -r f; do printf '     %s\n' "$f"; done
+    fi
+  fi
+
+  exit 0
+}
+
+case "$SUBCOMMAND" in
+  install) cmd_install ;;
+  update)  cmd_update ;;
+  status)  cmd_status ;;
+  ""|-h|--help) msg MSG_SBM_USAGE; exit 0 ;;
+  *) msg MSG_SBM_UNKNOWN_SUBCOMMAND "$SUBCOMMAND" >&2; exit 1 ;;
+esac
